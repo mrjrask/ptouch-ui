@@ -1,0 +1,1 @@
+include install.sh update.sh uninstall.sh scripts/manage.py
