@@ -111,6 +111,8 @@ class ObjectDialog(Dialog):
             self.check(form, "Dither image", "dither")
         elif element.kind in ("Rectangle", "Ellipse"):
             self.entry(form, "Stroke (dots)", "stroke")
+            if element.kind == "Rectangle":
+                self.entry(form, "Corner radius (0–64 dots)", "radius")
             self.check(form, "Fill shape", "filled")
         self.buttons("Add object" if creating else "Apply", self.apply)
 

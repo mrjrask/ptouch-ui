@@ -193,3 +193,35 @@ class DocumentTests(TestCase):
         self.assertLessEqual(length, 38.1)
         self.assertEqual(5, content_length(Label(elements=(Element("Line", 0, 0, 3, 2),))))
         self.assertEqual(70, content_length(Label()))
+
+    def test_rounded_rectangle_clears_its_corners(self):
+        square = Element("Rectangle", 0, 0, 60, 60, filled=True)
+        sharp, _ = render(Label(elements=(square,)))
+        rounded, issues = render(Label(elements=(replace(square, radius=20),)))
+        self.assertEqual([], issues)
+        self.assertEqual(0, sharp.getpixel((1, 1)))
+        self.assertEqual(255, rounded.getpixel((1, 1)))
+        self.assertEqual(0, rounded.getpixel((30, 30)))
+        with self.assertRaises(ValueError):
+            replace(square, radius=65)
+
+
+class RecentFileTests(TestCase):
+    def test_recent_list_is_deduplicated_capped_and_tolerates_bad_data(self):
+        from unittest.mock import patch
+
+        from ptouch_ui import recent
+
+        with TemporaryDirectory() as directory, patch.dict("os.environ", {"XDG_CONFIG_HOME": directory}):
+            self.assertEqual([], recent.load_recent())
+            for number in range(10):
+                recent.remember_recent(Path(directory) / f"{number}.ptlabel")
+            paths = recent.remember_recent(Path(directory) / "3.ptlabel")
+            self.assertEqual(recent.LIMIT, len(paths))
+            self.assertTrue(paths[0].endswith("3.ptlabel"))
+            self.assertEqual(1, sum(path.endswith("3.ptlabel") for path in paths))
+            self.assertEqual(paths, recent.load_recent())
+            recent.recent_file().write_text('{"not": "a list"}', encoding="utf-8")
+            self.assertEqual([], recent.load_recent())
+            recent.recent_file().write_text('["relative.ptlabel", 7]', encoding="utf-8")
+            self.assertEqual([], recent.load_recent())

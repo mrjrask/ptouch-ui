@@ -43,6 +43,7 @@ class Element:
     fit: bool = True
     stroke: int = 2
     filled: bool = False
+    radius: int = 0
     threshold: int = 128
     dither: bool = False
     barcode: str = "Code 128"
@@ -60,6 +61,7 @@ class Element:
             ("font_size", 1, 300),
             ("stroke", 1, 128),
             ("threshold", 1, 255),
+            ("radius", 0, 64),
         ):
             value = getattr(self, field)
             if type(value) is not int or not low <= value <= high:
