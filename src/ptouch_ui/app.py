@@ -44,15 +44,7 @@ from .widgets import (
 
 PROJECT_FILES = [("P-Touch label", "*.ptlabel"), ("All files", "*")]
 ZOOMS = ("Fit", "25%", "50%", "100%", "150%", "200%", "300%", "400%")
-LAYER_ICONS = {
-    "Text": "T",
-    "Image": "▧",
-    "Rectangle": "□",
-    "Ellipse": "○",
-    "Line": "━",
-    "QR code": "▦",
-    "Barcode": "▥",
-}
+LAYER_PREFIX = {"Text": "T", "QR code": "QR", "Barcode": "BAR"}
 
 
 def install_style(root):
@@ -370,17 +362,18 @@ class App:
         ttk.Label(panel, text="Label setup", style="Section.TLabel").pack(anchor="w", pady=(0, 8))
         setup = ttk.Frame(panel, style="Panel.TFrame")
         setup.pack(fill="x")
+        setup.columnconfigure(1, weight=1)
         ttk.Label(setup, text="Tape", style="PanelMuted.TLabel").grid(row=0, column=0, sticky="w", pady=4)
         tape = ttk.Combobox(
-            setup, textvariable=self.tape, values=[f"{t:g} mm" for t in TAPES], state="readonly", width=10
+            setup, textvariable=self.tape, values=[f"{t:g} mm" for t in TAPES], state="readonly", width=7
         )
-        tape.grid(row=0, column=1, sticky="w", padx=8)
+        tape.grid(row=0, column=1, sticky="ew", padx=6)
         tape.bind("<<ComboboxSelected>>", self.change_tape)
         ttk.Label(setup, text="Length (mm)", style="PanelMuted.TLabel").grid(
             row=1, column=0, sticky="w", pady=4
         )
-        length = ttk.Entry(setup, textvariable=self.length, width=9)
-        length.grid(row=1, column=1, sticky="w", padx=8)
+        length = ttk.Entry(setup, textvariable=self.length, width=6)
+        length.grid(row=1, column=1, sticky="ew", padx=6)
         length.bind("<Return>", lambda _event: self.change_length())
         ttk.Button(setup, text="Set", command=self.change_length).grid(row=1, column=2, sticky="w")
         ttk.Separator(panel).pack(fill="x", pady=12)
@@ -470,12 +463,14 @@ class App:
             self.layers.delete(*self.layers.get_children())
             for index in reversed(range(len(self.label.elements))):
                 element = self.label.elements[index]
-                content = (
-                    element.value.splitlines()[0].strip()[:21]
-                    if (element.value and element.kind in ("Text", "QR code", "Barcode"))
-                    else element.kind
-                )
-                self.layers.insert("", "end", iid=str(index), text=f"{LAYER_ICONS[element.kind]}  {content}")
+                content = element.kind
+                prefix = LAYER_PREFIX.get(element.kind)
+                if prefix and element.value.strip():
+                    preview = element.value.strip().splitlines()[0]
+                    if len(preview) > 17:
+                        preview = preview[:14] + "..."
+                    content = f"{prefix}   {preview}"
+                self.layers.insert("", "end", iid=str(index), text=content)
         self.update_selection()
         raster, issues = render(self.label, self.record)
         self.feedback.set(
