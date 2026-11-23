@@ -141,17 +141,32 @@ def save_label(path, label):
     payload = json.dumps({"version": 1, **asdict(label)}, indent=2, ensure_ascii=False) + "\n"
     if len(payload.encode("utf-8")) > MAX_FILE_BYTES:
         raise ValueError("The label document exceeds 20 MB.")
+    try:
+        mode = path.stat().st_mode & 0o7777
+    except FileNotFoundError:
+        # NamedTemporaryFile creates owner-only files; apply the usual umask-based mode instead.
+        umask = os.umask(0)
+        os.umask(umask)
+        mode = 0o666 & ~umask
     with NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as temporary:
         temporary_path = Path(temporary.name)
         try:
             temporary.write(payload)
             temporary.close()
+            os.chmod(temporary_path, mode)
             os.replace(temporary_path, path)
         finally:
             temporary_path.unlink(missing_ok=True)
 
 
 def read_csv(path):
+    try:
+        return parse_csv(path)
+    except UnicodeDecodeError as error:
+        raise ValueError("Save the CSV with UTF-8 encoding and import it again.") from error
+
+
+def parse_csv(path):
     with Path(path).open(encoding="utf-8-sig", newline="") as source:
         reader = csv.reader(source, strict=True)
         headers = [name.strip() for name in next(reader, [])]

@@ -2,6 +2,7 @@
 
 import tkinter as tk
 from dataclasses import replace
+from datetime import date
 from tkinter import font, ttk
 
 from PIL import Image, ImageTk
@@ -173,6 +174,7 @@ class LabelCanvas(ttk.Frame):
         self.grid_enabled = False
         self.raster_key = None
         self.raster = None
+        self.issues = []
         self.ruler_font = (font.nametofont("TkDefaultFont", root=self).actual("family"), 8)
         self.photo = None
         self.canvas = tk.Canvas(self, background=WORKSPACE, highlightthickness=0, takefocus=True)
@@ -224,9 +226,10 @@ class LabelCanvas(ttk.Frame):
         self.canvas.configure(scrollregion=(0, 0, max(cw, right + 42), max(ch, bottom + 48)))
         self.draw_rulers(label, left, top, pw, ph)
         self.canvas.create_rectangle(left + 2, top + 4, right + 3, bottom + 5, fill="#d4deeb", outline="")
-        key = label, self.index
+        today = date.today()
+        key = label, self.index, today
         if key != self.raster_key:
-            self.raster, _issues = render(label, self.index)
+            self.raster, self.issues = render(label, self.index, today)
             self.raster_key = key
         self.photo = ImageTk.PhotoImage(
             self.raster.resize((pw, ph), Image.Resampling.NEAREST), master=self.canvas

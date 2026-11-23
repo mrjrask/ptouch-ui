@@ -91,3 +91,29 @@ class DocumentTests(TestCase):
         first, issues = render(label, today=date(2026, 1, 2))
         self.assertEqual([], issues)
         self.assertNotEqual(first.tobytes(), render(label, today=date(2026, 1, 3))[0].tobytes())
+
+    def test_every_barcode_format_renders(self):
+        for name, value in (("Code 128", "Bin 7"), ("Code 39", "bin-07"), ("EAN-13", "590123412345")):
+            with self.subTest(barcode=name):
+                label = Label(
+                    tape=24, length=80, elements=(Element("Barcode", 0, 0, 540, 128, value, barcode=name),)
+                )
+                image, issues = render(label)
+                self.assertEqual([], issues)
+                self.assertEqual((0, 255), image.getextrema())
+
+    def test_saving_keeps_the_existing_file_mode(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "label.ptlabel"
+            path.write_text("{}", encoding="utf-8")
+            path.chmod(0o644)
+            save_label(path, Label())
+            self.assertEqual(0o644, path.stat().st_mode & 0o777)
+            self.assertEqual(Label(), load_label(path))
+
+    def test_csv_with_another_encoding_is_explained(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "latin.csv"
+            path.write_bytes("Name\nCaf\xe9\n".encode("latin-1"))
+            with self.assertRaisesRegex(ValueError, "UTF-8"):
+                read_csv(path)

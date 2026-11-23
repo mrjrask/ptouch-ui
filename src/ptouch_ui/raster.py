@@ -145,7 +145,7 @@ def barcode_tile(size, element, value):
     elif element.barcode == "Code 39":
         if not all(char in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%" for char in value.upper()):
             raise ValueError("Code 39 needs letters A–Z, numbers, or - . $ / + % and spaces.")
-        code = barcode.get("code39", value.upper(), add_checksum=False)
+        code = barcode.get_barcode_class("code39")(value.upper(), add_checksum=False)
     else:
         if len(value) not in (12, 13) or not value.isascii() or not value.isdigit():
             raise ValueError("EAN-13 needs 12 digits or 13 digits with a valid check digit.")
