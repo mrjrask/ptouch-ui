@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    name: Python ${{ matrix.python }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+      - name: Build and install the wheel
+        run: |
+          python -m pip wheel --no-deps --wheel-dir dist .
+          python -m pip install dist/*.whl
+      - name: Check formatting and lint
+        if: matrix.python == '3.12'
+        run: |
+          python -m pip install 'ruff>=0.9,<1'
+          ruff check .
+          ruff format --check .
+      - name: Run model, raster, and printer tests
+        if: matrix.python == '3.10'
+        run: python -m unittest discover -s tests -v
+      - name: Run tests with the desktop display
+        if: matrix.python == '3.12'
+        run: |
+          if ! command -v xvfb-run >/dev/null || ! command -v xauth >/dev/null; then
+            sudo apt-get update -qq
+            sudo apt-get install -y --no-install-recommends xvfb xauth
+          fi
+          xvfb-run -a python -m unittest discover -s tests -v
