@@ -5,10 +5,11 @@ import json
 import math
 import os
 import re
+import stat
 from dataclasses import asdict, dataclass, replace
 from datetime import date
 from pathlib import Path
-from tempfile import NamedTemporaryFile
+from tempfile import TemporaryDirectory
 
 DPI = 180
 DOTS_PER_MM = DPI / 25.4
@@ -127,38 +128,40 @@ def load_label(path):
     root = json.loads(path.read_text(encoding="utf-8"))
     if not isinstance(root, dict) or type(root.get("version")) is not int or root["version"] != 1:
         raise ValueError("Unsupported label document format.")
+    elements = root.get("elements")
+    rows = root.get("rows", [])
+    if not isinstance(elements, list) or not isinstance(rows, list):
+        raise ValueError("The label document must store objects and records as lists.")
     try:
         return Label(
             tape=root["tape"],
             length=root["length"],
-            elements=tuple(Element(**item) for item in root["elements"]),
-            rows=tuple(root.get("rows", [])),
+            elements=tuple(Element(**item) for item in elements),
+            rows=tuple(rows),
         )
     except (KeyError, TypeError) as error:
         raise ValueError("The label document is incomplete or malformed.") from error
 
 
 def save_label(path, label):
-    path = Path(path)
+    path = Path(os.path.realpath(path))
     payload = json.dumps({"version": 1, **asdict(label)}, indent=2, ensure_ascii=False) + "\n"
     if len(payload.encode("utf-8")) > MAX_FILE_BYTES:
         raise ValueError("The label document exceeds 20 MB.")
     try:
-        mode = path.stat().st_mode & 0o7777
+        mode = path.stat().st_mode
     except FileNotFoundError:
-        # NamedTemporaryFile creates owner-only files; apply the usual umask-based mode instead.
-        umask = os.umask(0)
-        os.umask(umask)
-        mode = 0o666 & ~umask
-    with NamedTemporaryFile(mode="w", encoding="utf-8", dir=path.parent, delete=False) as temporary:
-        temporary_path = Path(temporary.name)
-        try:
+        mode = None
+    if mode is not None and not stat.S_ISREG(mode):
+        raise ValueError("Choose a regular file for the label document.")
+    with TemporaryDirectory(prefix=".ptouch-ui-", dir=path.parent) as directory:
+        temporary_path = Path(directory) / "label"
+        # The OS applies the current umask to new files without changing it for other threads.
+        with temporary_path.open("x", encoding="utf-8") as temporary:
             temporary.write(payload)
-            temporary.close()
-            os.chmod(temporary_path, mode)
-            os.replace(temporary_path, path)
-        finally:
-            temporary_path.unlink(missing_ok=True)
+        if mode is not None:
+            temporary_path.chmod(stat.S_IMODE(mode))
+        temporary_path.replace(path)
 
 
 def read_csv(path):

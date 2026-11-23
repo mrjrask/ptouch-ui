@@ -20,8 +20,9 @@ args = sys.argv[1:]
 log = Path(os.environ["PRINTER_LOG"])
 if "--info" in args:
     mode = os.environ.get("PRINTER_MODE", "")
-    if mode == "no-dpi":
-        print("maximum printing width for this printer is 128px")
+    if mode in ("no-dpi", "no-dpi-other-model"):
+        model = "PT-2430PC" if mode == "no-dpi" else "PT-9500PC"
+        print(f"{model} found on USB bus 1, device 5", file=sys.stderr)
         print("maximum printing width for this tape is 120px")
         print("media width = 18 mm")
         print("error = 0000")
@@ -31,10 +32,13 @@ if "--info" in args:
         print("media width = 4 mm")
         print("error = 0000")
     else:
-        print("printer has 180 dpi, maximum printing width is 128 px")
+        dpi = 360 if mode == "wrong-dpi" else 180
+        print(f"printer has {dpi} dpi, maximum printing width is 128 px")
         print("maximum printing width for this tape is 76px")
         print("media width = 12 mm")
         print("error = " + ("0x0002" if mode == "media-error" else "0x0000"))
+        if mode == "init-error":
+            print("ptouch_init() failed")
 elif args == ["--help"]:
     print("--image --cutmark --serial=<serial> --feed=<dots>")
 elif "--image" in args:
@@ -46,6 +50,8 @@ elif "--image" in args:
         file.write(json.dumps(args) + "\\n")
     if os.environ.get("PRINTER_MODE") == "fail-second" and previous_jobs:
         print("ptouch_sendraster() failed")
+    if os.environ.get("PRINTER_MODE") == "write-error":
+        print("write error: LIBUSB_ERROR_IO", file=sys.stderr)
 else:
     sys.exit(1)
 """
@@ -74,6 +80,35 @@ class PrinterTests(TestCase):
         with patch.dict(os.environ, {"PRINTER_MODE": "no-dpi"}):
             tape = printer_status()
         self.assertEqual((18, 120, 180), (tape.width, tape.dots, tape.dpi))
+
+    def test_rejects_unverified_or_incompatible_resolution(self):
+        for mode, expectation in (
+            ("no-dpi-other-model", "did not report the resolution"),
+            ("wrong-dpi", "device reports 360 dpi"),
+        ):
+            with (
+                self.subTest(mode=mode),
+                patch.dict(os.environ, {"PRINTER_MODE": mode}),
+                self.assertRaisesRegex(PrinterError, expectation),
+            ):
+                print_images([self.image], 12, PrintOptions())
+            self.assertFalse(self.log.exists())
+
+    def test_status_checks_failures_reported_with_successful_exit_code(self):
+        with (
+            patch.dict(os.environ, {"PRINTER_MODE": "init-error"}),
+            self.assertRaisesRegex(PrinterError, r"ptouch_init\(\) failed"),
+        ):
+            printer_status()
+
+    def test_usb_write_failure_is_not_reported_as_a_printed_label(self):
+        progress = []
+        with (
+            patch.dict(os.environ, {"PRINTER_MODE": "write-error"}),
+            self.assertRaisesRegex(PrinterError, "write error: LIBUSB_ERROR_IO"),
+        ):
+            print_images([self.image], 12, PrintOptions(), progress.append)
+        self.assertEqual([], progress)
 
     def test_rejects_tape_mismatch_before_sending_any_image(self):
         with self.assertRaisesRegex(PrinterError, "printer reports 12 mm"):

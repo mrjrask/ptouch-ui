@@ -1,3 +1,4 @@
+import json
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -121,6 +122,38 @@ class DocumentTests(TestCase):
             self.assertEqual(0o644, path.stat().st_mode & 0o777)
             self.assertEqual(Label(), load_label(path))
 
+    def test_saving_through_a_symlink_updates_the_target(self):
+        with TemporaryDirectory() as directory:
+            target = Path(directory) / "original.ptlabel"
+            alias = target.with_name("shortcut.ptlabel")
+            save_label(target, Label())
+            alias.symlink_to(target.name)
+            revised = Label(length=42)
+            save_label(alias, revised)
+            self.assertTrue(alias.is_symlink())
+            self.assertEqual(revised, load_label(target))
+
+    def test_malformed_object_and_record_lists_are_rejected(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "label.ptlabel"
+            label = {"version": 1, "tape": 12, "length": 70, "elements": []}
+            path.write_text(json.dumps(label), encoding="utf-8")
+            self.assertEqual(Label(), load_label(path))
+            for override in ({"elements": {}}, {"rows": ""}):
+                with self.subTest(override=override):
+                    path.write_text(json.dumps({**label, **override}), encoding="utf-8")
+                    with self.assertRaisesRegex(ValueError, "objects and records as lists"):
+                        load_label(path)
+
+    def test_long_thin_import_keeps_a_printable_pixel(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "rule.png"
+            Image.new("L", (1000, 1), 0).save(path)
+            encoded, _ = import_image(path)
+        image, issues = render(Label(elements=(Element("Image", 0, 0, 50, 10, encoded),)))
+        self.assertEqual([], issues)
+        self.assertEqual((0, 255), image.getextrema())
+
     def test_csv_with_another_encoding_is_explained(self):
         with TemporaryDirectory() as directory:
             path = Path(directory) / "latin.csv"
@@ -133,6 +166,7 @@ class DocumentTests(TestCase):
             ("UPC-A", "036000291453", "check digit"),
             ("EAN-8", "12345", "7 digits or 8"),
             ("ITF", "123", "even number"),
+            ("Code 39", "groß", "letters A–Z"),
         ):
             with self.subTest(barcode=name):
                 label = Label(

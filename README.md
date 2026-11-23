@@ -31,8 +31,10 @@ Pillow, qrcode, and python-barcode are installed by pip.
 Run `~/.local/bin/ptouch-ui-update` to check for the latest commit on the
 repository's `main` branch and install it. Git and internet access are
 required. The updater leaves a working installation in place if downloading
-or building the new version fails. Older environments stay available to
-already-running app windows, and the uninstaller removes those environments.
+or building the new version fails. It can also rebuild the current revision to
+repair a missing launcher or an incompatible Python environment. Older
+environments stay available to already-running app windows, and the
+uninstaller removes those environments.
 
 Run `~/.local/bin/ptouch-ui-uninstall` to remove the installed app, its
 commands, and its desktop menu entry. Saved labels, exported PNGs, the source
@@ -173,8 +175,9 @@ the loaded tape and design stops the job. The app reports progress from
   mismatch means the design and loaded cassette widths differ.
 - If optional flags are rejected, leave those fields blank or upgrade
   `ptouch-print`. Basic printing needs its `--info` and `--image` options, and
-  strip printing also needs `--cutmark`. Older releases that do not report the
-  printer resolution in `--info` are treated as 180 dpi.
+  strip printing also needs `--cutmark`. When an older release omits the
+  resolution in `--info`, the app uses 180 dpi if the output identifies the
+  printer as a PT-2430PC.
 - This version uses its own editable document format. Brother P-touch Editor
   files need to be recreated or brought in as exported images. USB hardware
   printing requires a connected printer and has to be verified on-device.

@@ -65,10 +65,10 @@ def details(result):
 def printer_status(serial=""):
     arguments = ["--serial", serial] if serial else []
     result = run([*arguments, "--info"], timeout=12)
-    output = details(result)
-    if result.returncode:
-        message = output or f"ptouch-print exited with status {result.returncode}."
-        raise PrinterError(f"{message}\nCheck USB, the printer's E mode, and device permissions.")
+    try:
+        output = command_output(result)
+    except PrinterError as error:
+        raise PrinterError(f"{error}\nCheck USB, the printer's E mode, and device permissions.") from error
     error = re.search(r"^error\s*=\s*(?:0x)?([0-9a-f]+)\b", output, re.IGNORECASE | re.MULTILINE)
     if error and int(error[1], 16):
         raise PrinterError(f"Printer reports media or device error 0x{int(error[1], 16):04x}.")
@@ -78,16 +78,22 @@ def printer_status(serial=""):
     if not (pixels and width):
         raise PrinterError(f"Could not read the loaded tape from ptouch-print.\n{output}")
     measured = float(width[1])
-    # Older ptouch-print releases omit the resolution line; PT-series tape printers use 180 dpi.
-    status = TapeStatus(3.5 if measured == 4 else measured, int(pixels[1]), int(dpi[1]) if dpi else DPI)
+    # Older releases omit the resolution but still report the detected USB model.
+    if dpi:
+        resolution = int(dpi[1])
+    elif re.search(r"^PT-2430PC[ \t]+found on USB\b", output, re.IGNORECASE | re.MULTILINE):
+        resolution = DPI
+    else:
+        raise PrinterError("ptouch-print did not report the resolution or identify a PT-2430PC.")
+    status = TapeStatus(3.5 if measured == 4 else measured, int(pixels[1]), resolution)
     if status.dots == 0 or not status.width:
         raise PrinterError("No printable tape was detected.")
+    if status.dpi != DPI:
+        raise PrinterError(f"This editor expects a {DPI} dpi printer. The device reports {status.dpi} dpi.")
     return status
 
 
 def verify_tape(status, tape, pixels):
-    if status.dpi != DPI:
-        raise PrinterError(f"This editor expects a {DPI} dpi printer. The device reports {status.dpi} dpi.")
     if status.width != tape or status.dots != pixels:
         raise PrinterError(
             f"Design uses {tape:g} mm tape ({pixels} dots). "
@@ -96,15 +102,16 @@ def verify_tape(status, tape, pixels):
         )
 
 
-def verify_print_result(result):
+def command_output(result):
     output = details(result)
     failure = re.search(
-        r"\bfailed\b|image is too large|nothing to print|unable to|no p-touch printer",
+        r"\bfailed\b|image is too large|nothing to print|unable to|no p-touch printer|^write error:",
         output,
-        re.IGNORECASE,
+        re.IGNORECASE | re.MULTILINE,
     )
     if result.returncode or failure:
         raise PrinterError(output or f"ptouch-print exited with status {result.returncode}.")
+    return output
 
 
 def print_images(images, tape, options, report=lambda _count: None):
@@ -141,7 +148,7 @@ def print_images(images, tape, options, report=lambda _count: None):
                     jobs.append("--cutmark")
                 jobs.extend(("--image", path))
             try:
-                verify_print_result(run([*arguments, *jobs], timeout=max(90, 20 * count)))
+                command_output(run([*arguments, *jobs], timeout=max(90, 20 * count)))
             except PrinterError as error:
                 raise PrinterError(
                     f"The strip did not complete. Check the tape before printing again.\n{error}"
@@ -150,7 +157,7 @@ def print_images(images, tape, options, report=lambda _count: None):
         else:
             for number, path in enumerate(queue, start=1):
                 try:
-                    verify_print_result(run([*arguments, "--image", path], timeout=90))
+                    command_output(run([*arguments, "--image", path], timeout=90))
                 except PrinterError as error:
                     raise PrinterError(f"Completed {number - 1} of {count} labels.\n{error}") from error
                 report(number)

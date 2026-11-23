@@ -110,7 +110,10 @@ def decode_image(value):
 
 
 def picture_tile(size, element):
-    image = ImageOps.contain(decode_image(element.value), size, Image.Resampling.LANCZOS)
+    source = decode_image(element.value)
+    scale = min(size[0] / source.width, size[1] / source.height)
+    dimensions = max(1, round(source.width * scale)), max(1, round(source.height * scale))
+    image = source.resize(dimensions, Image.Resampling.LANCZOS)
     if element.dither:
         image = image.convert("1").convert("L")
     else:
@@ -145,7 +148,9 @@ def barcode_tile(size, element, value):
             raise ValueError("Code 128 needs printable ASCII text.")
         code = barcode.get("code128", value)
     elif element.barcode == "Code 39":
-        if not all(char in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%" for char in value.upper()):
+        if not value.isascii() or not all(
+            char in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%" for char in value.upper()
+        ):
             raise ValueError("Code 39 needs letters A–Z, numbers, or - . $ / + % and spaces.")
         code = barcode.get_barcode_class("code39")(value.upper(), add_checksum=False)
     elif element.barcode == "ITF":
