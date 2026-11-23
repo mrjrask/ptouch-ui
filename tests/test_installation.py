@@ -92,6 +92,7 @@ class InstallationTests(TestCase):
             patch("scripts.manage.run"),
             patch("scripts.manage.source_revision", return_value="second"),
             patch("scripts.manage.build_slot", side_effect=build_fake_slot) as build,
+            patch("scripts.manage.check_environment"),
         ):
             active.update()
             active.update()
@@ -101,3 +102,50 @@ class InstallationTests(TestCase):
         self.assertEqual("second", (active.current / "revision").read_text())
         active.uninstall()
         self.assertFalse(self.root.exists())
+
+    def test_update_repairs_missing_launchers_at_the_same_revision(self):
+        with patch("scripts.manage.build_slot", side_effect=build_fake_slot):
+            self.installation.install(self.source, "first")
+        active = manage.Installation(self.root)
+        active.links[0].unlink()
+        active.desktop.unlink()
+        with (
+            patch("scripts.manage.run"),
+            patch("scripts.manage.source_revision", return_value="first"),
+            patch("scripts.manage.build_slot", side_effect=build_fake_slot),
+        ):
+            active.update()
+        self.assertTrue(active.links[0].is_symlink())
+        self.assertTrue(active.desktop.is_file())
+
+    def test_update_repairs_an_incompatible_environment_at_the_same_revision(self):
+        with patch("scripts.manage.build_slot", side_effect=build_fake_slot):
+            self.installation.install(self.source, "first")
+        active = manage.Installation(self.root)
+        previous = active.current.resolve()
+        with (
+            patch("scripts.manage.run"),
+            patch("scripts.manage.source_revision", return_value="first"),
+            patch("scripts.manage.check_environment", side_effect=CalledProcessError(1, "python")),
+            patch("scripts.manage.build_slot", side_effect=build_fake_slot),
+        ):
+            active.update()
+        self.assertNotEqual(previous, active.current.resolve())
+        self.assertEqual("first", (active.current / "revision").read_text())
+
+    def test_interrupt_after_activation_leaves_the_new_install_intact(self):
+        replace = Path.replace
+
+        def interrupt_after_switch(path, target):
+            replace(path, target)
+            raise KeyboardInterrupt
+
+        with (
+            patch("scripts.manage.build_slot", side_effect=build_fake_slot),
+            patch.object(Path, "replace", interrupt_after_switch),
+            self.assertRaises(KeyboardInterrupt),
+        ):
+            self.installation.install(self.source, "first")
+        active = manage.Installation(self.root)
+        self.assertTrue(all(link.is_file() for link in active.links))
+        self.assertTrue(active.desktop.is_file())

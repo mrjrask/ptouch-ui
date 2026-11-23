@@ -200,6 +200,7 @@ class LabelCanvas(ttk.Frame):
         self.canvas.bind("<Shift-Button-5>", lambda _event: self.canvas.xview_scroll(3, "units"))
 
     def set_document(self, label, index, selected):
+        self.drag = None
         self.label, self.index, self.selected = label, index, selected
         self.redraw()
 
@@ -255,7 +256,7 @@ class LabelCanvas(ttk.Frame):
         major = next(step for step in (5, 10, 20, 50, 100) if step * pixels_per_mm >= 32)
         tick = max(1, major // 5)
         for mm in range(0, int(label.length) + 1, tick):
-            x = left + mm * pixels_per_mm
+            x = left + dots(mm) * self.scale
             marked = mm % major == 0
             canvas.create_line(x, top - 17, x, top - (24 if marked else 20), fill=RULER)
             if marked:
@@ -264,32 +265,37 @@ class LabelCanvas(ttk.Frame):
         for mm in range(int(label.size[1] / DOTS_PER_MM) + 1):
             if pixels_per_mm < 4 and mm % 5:
                 continue
-            y = top + mm * pixels_per_mm
+            y = top + dots(mm) * self.scale
             marked = mm % 5 == 0
             canvas.create_line(left - (21 if marked else 17), y, left - 14, y, fill=RULER)
             if marked and pixels_per_mm >= 2.5:
                 canvas.create_text(left - 25, y, text=str(mm), anchor="e", fill=RULER, font=self.ruler_font)
         canvas.create_text(left - 15, top - 31, text="mm", anchor="e", fill=RULER, font=self.ruler_font)
 
-    def grid_step(self):
-        """Grid spacing in printer dots: 1 mm, or 5 mm when 1 mm would be too dense to see."""
-        return dots(1) * (5 if dots(1) * self.scale < 7 else 1)
+    def grid_step_mm(self):
+        return 5 if DOTS_PER_MM * self.scale < 7 else 1
 
     def snap(self, value):
         if not self.grid_enabled:
             return value
-        step = self.grid_step()
-        return round(value / step) * step
+        step = self.grid_step_mm()
+        return dots(round(value / (DOTS_PER_MM * step)) * step)
+
+    def move_edge(self, position, delta):
+        return self.snap(position + delta) if delta else position
 
     def draw_grid(self, left, top, right, bottom):
-        spacing = self.grid_step() * self.scale
-        x, y = left + spacing, top + spacing
-        while x < right:
+        step = self.grid_step_mm()
+        for mm in range(step, int(self.label.length) + 1, step):
+            x = left + dots(mm) * self.scale
+            if x >= right:
+                break
             self.canvas.create_line(x, top, x, bottom, fill="#9aabc5", stipple="gray25")
-            x += spacing
-        while y < bottom:
+        for mm in range(step, int(self.label.size[1] / DOTS_PER_MM) + 1, step):
+            y = top + dots(mm) * self.scale
+            if y >= bottom:
+                break
             self.canvas.create_line(left, y, right, y, fill="#9aabc5", stipple="gray25")
-            y += spacing
 
     @staticmethod
     def corners(bounds):
@@ -308,8 +314,11 @@ class LabelCanvas(ttk.Frame):
 
     def context_click(self, event):
         self.canvas.focus_set()
+        was_dragging = self.drag is not None
         self.drag = None
         self.select(self.hit(*self.point(event)))
+        if was_dragging:
+            self.redraw()
         if self.context is not None:
             self.context(event.x_root, event.y_root)
 
@@ -340,8 +349,8 @@ class LabelCanvas(ttk.Frame):
             width, height = self.label.size
             item = replace(
                 original,
-                x=max(0, min(width - original.width, self.snap(original.x + dx))),
-                y=max(0, min(height - original.height, self.snap(original.y + dy))),
+                x=max(0, min(width - original.width, self.move_edge(original.x, dx))),
+                y=max(0, min(height - original.height, self.move_edge(original.y, dy))),
             )
         else:
             left, top = max(0, original.x), max(0, original.y)
@@ -353,13 +362,13 @@ class LabelCanvas(ttk.Frame):
             left, top = min(left, max_width - 1), min(top, max_height - 1)
             right, bottom = max(left + 1, right), max(top + 1, bottom)
             if "w" in direction:
-                left = max(0, min(right - 1, self.snap(left + dx)))
+                left = max(0, min(right - 1, self.move_edge(left, dx)))
             else:
-                right = max(left + 1, min(max_width, self.snap(right + dx)))
+                right = max(left + 1, min(max_width, self.move_edge(right, dx)))
             if "n" in direction:
-                top = max(0, min(bottom - 1, self.snap(top + dy)))
+                top = max(0, min(bottom - 1, self.move_edge(top, dy)))
             else:
-                bottom = max(top + 1, min(max_height, self.snap(bottom + dy)))
+                bottom = max(top + 1, min(max_height, self.move_edge(bottom, dy)))
             item = replace(original, x=left, y=top, width=right - left, height=bottom - top)
         self.drag = index, (origin_x, origin_y), original, direction, item
         self.redraw()

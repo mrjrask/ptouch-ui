@@ -111,7 +111,7 @@ class Installation:
         for link in self.links:
             if os.path.lexists(link) and not owns_link(link, self.target):
                 raise InstallError(f"Another file already uses {link}.")
-        if not self.exists and os.path.lexists(self.desktop):
+        if os.path.lexists(self.desktop) and (not self.exists or not self.desktop.is_file()):
             raise InstallError(f"Another file already uses {self.desktop}.")
 
     def register(self, created):
@@ -148,6 +148,9 @@ class Installation:
             next_current.symlink_to(slot.relative_to(self.root), target_is_directory=True)
             next_current.replace(self.current)
         except BaseException:
+            if slot is not None and owns_link(self.current, slot.relative_to(self.root)):
+                # The atomic switch completed before we received the interruption.
+                raise
             for path in reversed(created):
                 path.unlink(missing_ok=True)
             if next_current is not None:
@@ -160,7 +163,7 @@ class Installation:
         print(f"Installed P-Touch UI. Launch from the desktop menu or run {self.links[0]}.")
 
     def update(self):
-        if not self.exists or not self.target.is_file():
+        if not self.exists:
             raise InstallError("P-Touch UI is not installed. Run ./install.sh first.")
         if not shutil.which("git"):
             raise InstallError("Install Git to check for P-Touch UI updates.")
@@ -184,10 +187,22 @@ class Installation:
                 revision
                 and saved_revision.is_file()
                 and saved_revision.read_text(encoding="utf-8") == revision
+                and self.ready()
             ):
                 print(f"P-Touch UI is already up to date ({revision[:8]}).")
                 return
             self.install(source, revision)
+
+    def ready(self):
+        if not self.target.is_file() or not self.desktop.is_file():
+            return False
+        if not all(owns_link(link, self.target) for link in self.links):
+            return False
+        try:
+            check_environment(self.current / "venv" / "bin" / "python", quiet=True)
+        except (OSError, subprocess.CalledProcessError):
+            return False
+        return True
 
     def uninstall(self):
         if not self.exists:
@@ -219,6 +234,14 @@ class Installation:
         print("P-Touch UI was uninstalled. Saved labels are still in their original locations.")
 
 
+def check_environment(python, *, quiet=False):
+    subprocess.run(
+        [python, "-I", "-c", "import ptouch_ui.app"],
+        check=True,
+        capture_output=quiet,
+    )
+
+
 def build_slot(source, slot, revision):
     if sys.version_info < (3, 10):
         raise InstallError("P-Touch UI needs Python 3.10 or newer.")
@@ -244,7 +267,7 @@ def build_slot(source, slot, revision):
             source / "src", package / "src", ignore=shutil.ignore_patterns("__pycache__", "*.egg-info")
         )
         run(python, "-m", "pip", "--disable-pip-version-check", "install", "--no-input", package)
-    run(python, "-c", "import ptouch_ui.app")
+    check_environment(python)
     shutil.copy2(source / "scripts" / "manage.py", slot / "manage.py")
     (slot / "manage.py").chmod(0o755)
     (slot / "revision").write_text(revision, encoding="utf-8")

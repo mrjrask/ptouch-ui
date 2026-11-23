@@ -1,5 +1,6 @@
 """Print preview, options, and job progress."""
 
+import logging
 import tkinter as tk
 from datetime import date
 from queue import Empty, SimpleQueue
@@ -13,12 +14,19 @@ from .printer import PrinterError, PrintOptions, print_images
 from .raster import render
 from .widgets import Dialog
 
+LOGGER = logging.getLogger(__name__)
+
 
 def background(operation, messages):
     try:
         messages.put(("done", operation()))
     except (PrinterError, OSError, ValueError) as error:
         messages.put(("error", str(error)))
+    except Exception:
+        LOGGER.exception("Unexpected failure in background printer operation")
+        messages.put(
+            ("error", "An unexpected error stopped the printer operation. Check the tape before retrying.")
+        )
 
 
 class PrintDialog(Dialog):
@@ -130,6 +138,8 @@ class PrintDialog(Dialog):
             self.destroy()
 
     def send(self):
+        if self.running:
+            return
         try:
             options = PrintOptions(
                 copies=int(self.count.get()),

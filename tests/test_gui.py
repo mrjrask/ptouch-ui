@@ -84,6 +84,8 @@ class DesktopTests(TestCase):
         app.grid.set(True)
         app.toggle_grid()
         app.select(0)
+        app.canvas.zoom = 1
+        app.canvas.redraw()
         root.update()
         left, top, right, bottom = app.canvas.box(app.object)
         start = SimpleNamespace(x=(left + right) / 2, y=(top + bottom) / 2)
@@ -91,7 +93,9 @@ class DesktopTests(TestCase):
         app.canvas.pointer_down(start)
         app.canvas.pointer_move(end)
         app.canvas.pointer_up(end)
-        self.assertEqual(0, app.object.x % app.canvas.grid_step())
+        self.assertEqual(dots(2), app.object.x)
+        self.assertEqual(3, app.object.y)
+        self.assertEqual(dots(200), app.canvas.snap(dots(200)))
 
         with patch.object(app.context_menu, "tk_popup") as popup:
             app.canvas.context_click(SimpleNamespace(x=start.x, y=start.y, x_root=5, y_root=6))
@@ -110,3 +114,41 @@ class DesktopTests(TestCase):
         self.assertGreaterEqual(dots(app.label.length), app.object.x * 2 + app.object.width)
         app.undo()
         self.assertEqual(120, app.label.length)
+
+    def test_deleting_during_a_drag_cancels_the_pending_edit(self):
+        import tkinter as tk
+        from types import SimpleNamespace
+
+        from ptouch_ui.app import App
+        from ptouch_ui.document import Element, Label
+
+        root = tk.Tk()
+        self.addCleanup(root.destroy)
+        app = App(root)
+        element = Element("Rectangle", 10, 10, 100, 40)
+        app.reset(Label(elements=(element,)), "Drag test")
+        root.update()
+        left, top, right, bottom = app.canvas.box(element)
+        start = SimpleNamespace(x=(left + right) / 2, y=(top + bottom) / 2)
+        end = SimpleNamespace(x=start.x + 30, y=start.y)
+        app.canvas.pointer_down(start)
+        app.canvas.pointer_move(end)
+        app.delete()
+        app.canvas.pointer_up(end)
+        self.assertEqual((), app.label.elements)
+        self.assertIsNone(app.canvas.drag)
+        app.undo()
+        self.assertEqual((element,), app.label.elements)
+
+    def test_unexpected_worker_failure_still_notifies_the_dialog(self):
+        from queue import SimpleQueue
+        from unittest.mock import Mock
+
+        from ptouch_ui.print_dialog import background
+
+        messages = SimpleQueue()
+        with self.assertLogs("ptouch_ui.print_dialog", level="ERROR"):
+            background(Mock(side_effect=RuntimeError("unexpected failure")), messages)
+        event, message = messages.get_nowait()
+        self.assertEqual("error", event)
+        self.assertIn("stopped the printer operation", message)
