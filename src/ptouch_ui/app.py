@@ -31,6 +31,7 @@ from .document import (
 from .print_dialog import PrintDialog, background
 from .printer import printer_status
 from .raster import import_image, list_fonts, render, save_png
+from .recent import forget_recent, load_recent, remember_recent
 from .widgets import (
     BLUE,
     INK,
@@ -166,6 +167,7 @@ class App:
         self.clipboard = None
         self.fonts = None
         self.checking = False
+        self.print_dialog = None
         self.title = tk.StringVar(root)
         self.tape = tk.StringVar(root)
         self.length = tk.StringVar(root)
@@ -188,7 +190,7 @@ class App:
             top, text="PT", font=(family, 11, "bold"), foreground="white", background=BLUE, width=3, pady=5
         ).pack(side="left", padx=(0, 9))
         ttk.Label(top, text="P-Touch UI", style="Heading.TLabel").pack(side="left", padx=(0, 15))
-        self.menu(
+        file_button = self.menu(
             top,
             "File",
             [
@@ -199,7 +201,12 @@ class App:
                 None,
                 ("Export PNG…", self.export, ""),
             ],
-        ).pack(side="left")
+        )
+        file_button.pack(side="left")
+        file_menu = file_button.nametowidget(file_button["menu"])
+        self.recent_menu = self.popup_menu(file_menu, [])
+        file_menu.insert_cascade(2, label="Open recent", menu=self.recent_menu)
+        self.update_recent_menu(load_recent())
         self.menu(
             top, "Templates", [(name, lambda name=name: self.new(name), "") for name in TEMPLATES]
         ).pack(
@@ -588,6 +595,13 @@ class App:
         return choice is False or (choice is True and self.save())
 
     def close(self):
+        if self.print_dialog is not None and self.print_dialog.running:
+            messagebox.showwarning(
+                "Printing in progress",
+                "Wait for the print job to finish before closing P-Touch UI.",
+                parent=self.print_dialog,
+            )
+            return
         if self.confirm_replacement():
             self.root.destroy()
 
@@ -607,9 +621,32 @@ class App:
         try:
             label = load_label(path)
         except (OSError, ValueError) as error:
+            if isinstance(error, FileNotFoundError):
+                self.update_recent_menu(forget_recent(path))
             self.show_error("Could not open label", error)
         else:
             self.reset(label, Path(path).stem, Path(path))
+            self.update_recent_menu(remember_recent(path))
+
+    def open_recent(self, path):
+        if self.confirm_replacement():
+            self.open_path(path)
+
+    def update_recent_menu(self, paths):
+        menu = self.recent_menu
+        menu.delete(0, "end")
+        for path in paths:
+            menu.add_command(label=Path(path).name, command=lambda path=path: self.open_recent(path))
+        if paths:
+            menu.add_separator()
+            menu.add_command(label="Clear list", command=self.clear_recent)
+        else:
+            menu.add_command(label="No recent labels", state="disabled")
+
+    def clear_recent(self):
+        for path in load_recent():
+            forget_recent(path)
+        self.update_recent_menu([])
 
     def save(self, save_as=False):
         path = self.path
@@ -630,6 +667,7 @@ class App:
             self.show_error("Could not save label", error)
             return False
         self.saved, self.path, self.name = self.label, path, path.stem
+        self.update_recent_menu(remember_recent(path))
         self.refresh(rebuild=False, notice=f"Saved {path.name}")
         return True
 
@@ -934,6 +972,7 @@ class App:
             self.root.after(70, self.poll_device, messages)
             return
         self.checking = False
+        self.print_dialog = None
         self.detect_button.state(["!disabled"])
         self.print_button.state(["!disabled"])
         if event == "done":
@@ -958,7 +997,11 @@ class App:
     def print_label(self):
         if self.checking:
             return
-        count = PrintDialog(self.root, self.label, self.record, self.name).show()
+        self.print_dialog = PrintDialog(self.root, self.label, self.record, self.name)
+        try:
+            count = self.print_dialog.show()
+        finally:
+            self.print_dialog = None
         if count:
             self.feedback.set(f"Submitted {count} label(s) to the printer")
 
@@ -977,6 +1020,8 @@ class App:
             "<Control-v>": self.paste,
             "<Control-d>": self.duplicate,
             "<Delete>": self.delete,
+            "<Prior>": lambda: self.step_record(-1),
+            "<Next>": lambda: self.step_record(1),
         }
         editing = ("z", "Z", "y", "x", "c", "v", "d", "Delete")
         for sequence, action in shortcuts.items():

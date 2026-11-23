@@ -88,7 +88,7 @@ python3 -m venv .venv
 | --- | --- |
 | Text | Multiple lines, installed Linux fonts, bold, italic, left/center/right alignment, size in printer dots, optional shrink-to-fit, and white text on a black box |
 | Image | Import PNG, JPEG, GIF, BMP, TIFF, or WebP. Adjust the black-and-white threshold or use dithering. Transparency becomes white, and the image keeps its aspect ratio. |
-| Rectangle and ellipse | Outlines with adjustable stroke weight or solid fills |
+| Rectangle and ellipse | Outlines with adjustable stroke weight or solid fills. Rectangles can have rounded corners (0–64 dots). |
 | Line | Horizontal rule with adjustable length and thickness via its width and height. Rotate it 90° for a vertical rule. |
 | QR code | Encode text, URLs, and data fields |
 | Barcode | Code 128, Code 39, EAN-13, EAN-8, UPC-A, and ITF (interleaved 2 of 5), with an optional human-readable caption. EAN and UPC values can omit the check digit, which is calculated for you. |
@@ -128,7 +128,9 @@ Asset,Location
 **File → Save** creates a `.ptlabel` document. It embeds imported images and
 data records, so they travel with the document. The receiving machine needs the
 same fonts for matching text metrics. You can reopen and edit the label later, or open it at launch with
-`ptouch-ui path/to/label.ptlabel`.
+`ptouch-ui path/to/label.ptlabel`. **File → Open recent** lists the last eight
+labels you opened or saved. The list is stored in
+`$XDG_CONFIG_HOME/ptouch-ui/recent.json` (normally `~/.config/ptouch-ui`).
 
 Use **File → Export PNG** to export the current record as a 180 dpi,
 two-color indexed PNG. The exported raster is suitable for
@@ -164,7 +166,7 @@ Tape widths and the printable heights used by the editor at 180 dpi:
 Print validation catches missing data fields, incomplete or undersized codes,
 clipped objects, and blank records before sending labels. A mismatch between
 the loaded tape and design stops the job. The app reports progress from
-`ptouch-print`. If a job stops partway through, check the tape before resending.
+`ptouch-print` and will not close while a job is being sent. If a job stops partway through, check the tape before resending.
 
 ### Printer troubleshooting
 
@@ -192,6 +194,7 @@ the loaded tape and design stops the job. The app reports progress from
 | Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y | Undo / Redo |
 | Ctrl+X / Ctrl+C / Ctrl+V | Cut / Copy / Paste selected object |
 | Ctrl+D / Delete | Duplicate / Delete selected object |
+| Page Up / Page Down | Previous / next data record |
 | Arrow keys with canvas focused | Move selected object by one printer dot |
 | Shift+arrow keys with canvas focused | Move selected object by approximately one millimeter |
 

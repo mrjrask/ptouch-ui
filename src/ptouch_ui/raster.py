@@ -202,8 +202,13 @@ def shape_mask(size, element):
     if element.kind == "Line":
         draw.rectangle(bounds, fill=WHITE)
     else:
-        shape = draw.ellipse if element.kind == "Ellipse" else draw.rectangle
-        shape(bounds, fill=WHITE if element.filled else None, outline=WHITE, width=stroke)
+        style = {"fill": WHITE if element.filled else None, "outline": WHITE, "width": stroke}
+        if element.kind == "Ellipse":
+            draw.ellipse(bounds, **style)
+        elif element.radius:
+            draw.rounded_rectangle(bounds, radius=min(element.radius, min(size) // 2), **style)
+        else:
+            draw.rectangle(bounds, **style)
     return tile
 
 

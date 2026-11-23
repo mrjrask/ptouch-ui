@@ -7,6 +7,15 @@ from ptouch_ui.document import numbered_rows
 
 @skipUnless(os.environ.get("DISPLAY"), "Run the desktop smoke test with an X11 display.")
 class DesktopTests(TestCase):
+    def setUp(self):
+        from tempfile import TemporaryDirectory
+
+        config = TemporaryDirectory()
+        self.addCleanup(config.cleanup)
+        environment = patch.dict(os.environ, {"XDG_CONFIG_HOME": config.name})
+        environment.start()
+        self.addCleanup(environment.stop)
+
     def test_add_drag_undo_and_prepare_a_print_job(self):
         import tkinter as tk
         from dataclasses import replace
@@ -152,3 +161,50 @@ class DesktopTests(TestCase):
         event, message = messages.get_nowait()
         self.assertEqual("error", event)
         self.assertIn("stopped the printer operation", message)
+
+    def test_recent_files_close_guard_and_record_paging(self):
+        import tkinter as tk
+        from dataclasses import replace
+        from pathlib import Path
+        from tempfile import TemporaryDirectory
+        from types import SimpleNamespace
+
+        from ptouch_ui.app import App
+        from ptouch_ui.document import Label, save_label
+        from ptouch_ui.recent import load_recent
+
+        root = tk.Tk()
+        self.addCleanup(root.destroy)
+        app = App(root)
+        self.assertEqual("No recent labels", app.recent_menu.entrycget(0, "label"))
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "Bins.ptlabel"
+            save_label(path, Label())
+            app.open_path(str(path))
+            self.assertEqual([str(path.resolve())], load_recent())
+            self.assertEqual("Bins.ptlabel", app.recent_menu.entrycget(0, "label"))
+            path.unlink()
+            with patch("ptouch_ui.app.messagebox.showerror") as error:
+                app.open_recent(str(path.resolve()))
+            error.assert_called_once()
+            self.assertEqual([], load_recent())
+
+        app.change(replace(app.label, rows=numbered_rows(1, 3, 1)), None)
+        app.step_record(1)
+        self.assertEqual(1, app.record)
+        canvas = app.canvas.canvas
+        canvas.focus_force()
+        root.update()
+        canvas.event_generate("<Next>", when="now")
+        root.update()
+        self.assertEqual(2, app.record)
+        canvas.event_generate("<Prior>", when="now")
+        root.update()
+        self.assertEqual(1, app.record)
+
+        app.print_dialog = SimpleNamespace(running=True)
+        with patch("ptouch_ui.app.messagebox.showwarning") as warning:
+            app.close()
+        warning.assert_called_once()
+        self.assertTrue(root.winfo_exists())
+        app.print_dialog = None
