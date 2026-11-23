@@ -20,7 +20,12 @@ args = sys.argv[1:]
 log = Path(os.environ["PRINTER_LOG"])
 if "--info" in args:
     mode = os.environ.get("PRINTER_MODE", "")
-    if mode == "legacy":
+    if mode == "no-dpi":
+        print("maximum printing width for this printer is 128px")
+        print("maximum printing width for this tape is 120px")
+        print("media width = 18 mm")
+        print("error = 0000")
+    elif mode == "legacy":
         print("printer has 180 dpi, maximum printing width is 128px")
         print("maximum printing width for this tape is 24px")
         print("media width = 4 mm")
@@ -64,6 +69,11 @@ class PrinterTests(TestCase):
         with patch.dict(os.environ, {"PRINTER_MODE": "legacy"}):
             tape = printer_status()
         self.assertEqual((3.5, 24, 180), (tape.width, tape.dots, tape.dpi))
+
+    def test_older_status_output_without_resolution_assumes_180_dpi(self):
+        with patch.dict(os.environ, {"PRINTER_MODE": "no-dpi"}):
+            tape = printer_status()
+        self.assertEqual((18, 120, 180), (tape.width, tape.dots, tape.dpi))
 
     def test_rejects_tape_mismatch_before_sending_any_image(self):
         with self.assertRaisesRegex(PrinterError, "printer reports 12 mm"):

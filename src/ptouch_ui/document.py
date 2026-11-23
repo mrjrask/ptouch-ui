@@ -2,6 +2,7 @@
 
 import csv
 import json
+import math
 import os
 import re
 from dataclasses import asdict, dataclass, replace
@@ -16,7 +17,7 @@ MIN_LENGTH, MAX_LENGTH = 5, 300
 MAX_RECORDS = 250
 MAX_FILE_BYTES = 20_000_000
 KINDS = ("Text", "Image", "Rectangle", "Ellipse", "Line", "QR code", "Barcode")
-BARCODES = ("Code 128", "Code 39", "EAN-13")
+BARCODES = ("Code 128", "Code 39", "EAN-13", "EAN-8", "UPC-A", "ITF")
 FIELD = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
 
 
@@ -45,6 +46,7 @@ class Element:
     dither: bool = False
     barcode: str = "Code 128"
     caption: bool = True
+    inverted: bool = False
 
     def __post_init__(self):
         if self.kind not in KINDS:
@@ -71,7 +73,7 @@ class Element:
             raise ValueError("Object content is limited to 2,000 characters.")
         if any(
             type(getattr(self, field)) is not bool
-            for field in ("bold", "italic", "fit", "filled", "dither", "caption")
+            for field in ("bold", "italic", "fit", "filled", "dither", "caption", "inverted")
         ):
             raise ValueError("Invalid object style.")
 
@@ -192,6 +194,18 @@ def numbered_rows(start, count, digits):
     if not 0 <= start <= 99999999 or not 1 <= count <= MAX_RECORDS or not 1 <= digits <= 8:
         raise ValueError(f"Use a nonnegative start, 1–{MAX_RECORDS} labels, and 1–8 digits.")
     return tuple({"number": str(number).zfill(digits)} for number in range(start, start + count))
+
+
+def content_length(label):
+    """Return the shortest valid length in mm that holds every object with matching end margins."""
+    if not label.elements:
+        return label.length
+    left = max(0, min(element.x for element in label.elements))
+    right = max(element.x + element.width for element in label.elements)
+    needed = math.ceil((right + left) / DOTS_PER_MM * 10) / 10
+    while dots(needed) < right + left:
+        needed = round(needed + 0.1, 1)
+    return max(MIN_LENGTH, min(MAX_LENGTH, needed))
 
 
 def fit_position(element, label):

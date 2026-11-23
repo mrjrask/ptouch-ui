@@ -16,6 +16,8 @@ from .document import DPI, substitute
 WHITE = 255
 BLACK = 0
 THRESHOLD = [BLACK] * 128 + [WHITE] * 128
+# Formats with a trailing check digit: python-barcode name and full length.
+CHECK_DIGIT_CODES = {"EAN-13": ("ean13", 13), "EAN-8": ("ean8", 8), "UPC-A": ("upca", 12)}
 
 
 def list_fonts():
@@ -146,12 +148,19 @@ def barcode_tile(size, element, value):
         if not all(char in "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ-. $/+%" for char in value.upper()):
             raise ValueError("Code 39 needs letters A–Z, numbers, or - . $ / + % and spaces.")
         code = barcode.get_barcode_class("code39")(value.upper(), add_checksum=False)
+    elif element.barcode == "ITF":
+        if not value.isascii() or not value.isdigit() or len(value) % 2:
+            raise ValueError("ITF needs an even number of digits.")
+        code = barcode.get_barcode_class("itf")(value)
     else:
-        if len(value) not in (12, 13) or not value.isascii() or not value.isdigit():
-            raise ValueError("EAN-13 needs 12 digits or 13 digits with a valid check digit.")
-        code = barcode.get("ean13", value[:12])
-        if len(value) == 13 and code.get_fullcode() != value:
-            raise ValueError("The EAN-13 check digit is incorrect.")
+        name, digits = CHECK_DIGIT_CODES[element.barcode]
+        if len(value) not in (digits - 1, digits) or not value.isascii() or not value.isdigit():
+            raise ValueError(
+                f"{element.barcode} needs {digits - 1} digits or {digits} digits with a valid check digit."
+            )
+        code = barcode.get_barcode_class(name)(value[: digits - 1])
+        if len(value) == digits and code.get_fullcode() != value:
+            raise ValueError(f"The {element.barcode} check digit is incorrect.")
 
     bars = code.build()[0]
     quiet = 11
@@ -220,7 +229,7 @@ def render(label, index=0, today=None):
                     mask, issue = text_tile(size, element, value)
                     if issue:
                         issues.append(f"{name}. {issue}")
-                    tile = BLACK
+                    tile = WHITE if element.inverted else BLACK
                 elif element.kind == "QR code":
                     tile = qr_tile(size, value)
                 else:
@@ -248,7 +257,10 @@ def render(label, index=0, today=None):
         if mask is None:
             tape.paste(tile, (element.x, element.y))
         else:
-            tape.paste(tile, (element.x, element.y, element.x + box_width, element.y + box_height), mask)
+            box = (element.x, element.y, element.x + box_width, element.y + box_height)
+            if element.kind == "Text" and element.inverted:
+                tape.paste(BLACK, box)
+            tape.paste(tile, box, mask)
     return tape, issues
 
 
