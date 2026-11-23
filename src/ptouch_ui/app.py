@@ -472,7 +472,8 @@ class App:
                     content = f"{prefix}   {preview}"
                 self.layers.insert("", "end", iid=str(index), text=content)
         self.update_selection()
-        raster, issues = render(self.label, self.record)
+        # The canvas has just rendered this exact document and record.
+        raster, issues = self.canvas.raster, self.canvas.issues
         self.feedback.set(
             issues[0]
             if issues
