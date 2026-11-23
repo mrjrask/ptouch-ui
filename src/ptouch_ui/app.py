@@ -1,6 +1,7 @@
 """Main window for the P-Touch label editor."""
 
 import csv
+import sys
 import tkinter as tk
 from dataclasses import replace
 from pathlib import Path
@@ -18,6 +19,7 @@ from .document import (
     TAPES,
     TEMPLATES,
     Element,
+    content_length,
     dots,
     fit_position,
     load_label,
@@ -292,7 +294,24 @@ class App:
             document, text="Grid", variable=self.grid, style="Panel.TCheckbutton", command=self.toggle_grid
         ).pack(side="right", padx=(5, 5))
         ttk.Separator(center).pack(fill="x")
-        self.canvas = LabelCanvas(center, self.select, self.change_object, self.edit_object)
+        self.canvas = LabelCanvas(
+            center, self.select, self.change_object, self.edit_object, self.show_context_menu
+        )
+        self.context_menu = self.popup_menu(
+            center,
+            [
+                ("Edit content / style…", self.edit_object, "Double-click"),
+                None,
+                ("Cut", self.cut, "Ctrl+X"),
+                ("Copy", self.copy, "Ctrl+C"),
+                ("Paste", self.paste, "Ctrl+V"),
+                ("Duplicate", self.duplicate, "Ctrl+D"),
+                ("Delete", self.delete, "Delete"),
+                None,
+                ("Raise", lambda: self.reorder(1), ""),
+                ("Lower", lambda: self.reorder(-1), ""),
+            ],
+        )
         self.canvas.pack(fill="both", expand=True)
         row = ttk.Frame(center, style="Panel.TFrame", padding=(12, 7))
         row.pack(fill="x")
@@ -312,11 +331,16 @@ class App:
             side="right"
         )
 
-    @staticmethod
-    def menu(parent, label, entries):
+    @classmethod
+    def menu(cls, parent, label, entries):
         button = ttk.Menubutton(parent, text=label)
+        button.configure(menu=cls.popup_menu(button, entries))
+        return button
+
+    @staticmethod
+    def popup_menu(parent, entries):
         menu = tk.Menu(
-            button,
+            parent,
             tearoff=False,
             background=PANEL,
             foreground=INK,
@@ -329,8 +353,7 @@ class App:
             else:
                 name, command, shortcut = entry
                 menu.add_command(label=name, command=command, accelerator=shortcut)
-        button.configure(menu=menu)
-        return button
+        return menu
 
     def build_layers(self, parent):
         panel = ttk.Frame(parent, style="Panel.TFrame", padding=(12, 13), width=193)
@@ -348,6 +371,7 @@ class App:
         scrollbar.configure(command=self.layers.yview)
         self.layers.bind("<<TreeviewSelect>>", self.select_layer)
         self.layers.bind("<Double-Button-1>", lambda _event: self.edit_object())
+        self.layers.bind("<Button-3>", self.layer_context_menu)
         controls = ttk.Frame(panel, style="Panel.TFrame")
         controls.pack(fill="x", pady=(8, 0))
         ttk.Button(controls, text="Raise", command=lambda: self.reorder(1)).pack(side="left")
@@ -376,6 +400,9 @@ class App:
         length.grid(row=1, column=1, sticky="ew", padx=6)
         length.bind("<Return>", lambda _event: self.change_length())
         ttk.Button(setup, text="Set", command=self.change_length).grid(row=1, column=2, sticky="w")
+        ttk.Button(setup, text="Fit length to content", command=self.fit_length).grid(
+            row=2, column=0, columnspan=3, sticky="ew", pady=(6, 0)
+        )
         ttk.Separator(panel).pack(fill="x", pady=12)
         ttk.Label(panel, text="Object", style="Section.TLabel").pack(anchor="w")
         self.object_panel = ttk.Frame(panel, style="Panel.TFrame")
@@ -573,8 +600,10 @@ class App:
 
     def open(self):
         path = filedialog.askopenfilename(parent=self.root, title="Open label", filetypes=PROJECT_FILES)
-        if not path or not self.confirm_replacement():
-            return
+        if path and self.confirm_replacement():
+            self.open_path(path)
+
+    def open_path(self, path):
         try:
             label = load_label(path)
         except (OSError, ValueError) as error:
@@ -637,8 +666,41 @@ class App:
         self.canvas.redraw()
 
     def change_tape(self, _event):
-        tape = float(self.tape.get().split()[0])
-        self.change(replace(self.label, tape=tape), self.selected)
+        self.set_tape(float(self.tape.get().split()[0]))
+
+    def set_tape(self, tape):
+        self.change(replace(self.label, tape=tape), self.selected, f"Design tape set to {tape:g} mm")
+
+    def fit_length(self):
+        if not self.label.elements:
+            self.feedback.set("Add an object before fitting the length.")
+            return
+        length = content_length(self.label)
+        self.change(replace(self.label, length=length), self.selected, f"Label length set to {length:g} mm")
+
+    def layer_context_menu(self, event):
+        row = self.layers.identify_row(event.y)
+        self.select(int(row) if row else None)
+        self.show_context_menu(event.x_root, event.y_root)
+
+    def show_context_menu(self, x, y):
+        menu = self.context_menu
+        state = "normal" if self.object is not None else "disabled"
+        for index in range(menu.index("end") + 1):
+            if menu.type(index) != "command":
+                continue
+            label = menu.entrycget(index, "label")
+            if label == "Paste":
+                menu.entryconfigure(index, state="normal" if self.clipboard is not None else "disabled")
+            elif label.startswith("Edit"):
+                editable = self.object is not None and self.object.kind != "Line"
+                menu.entryconfigure(index, state="normal" if editable else "disabled")
+            else:
+                menu.entryconfigure(index, state=state)
+        try:
+            menu.tk_popup(x, y)
+        finally:
+            menu.grab_release()
 
     def change_length(self):
         try:
@@ -878,9 +940,17 @@ class App:
             self.printer_text.set(f"●  {payload.width:g} mm detected")
             self.printer_indicator.configure(style="StatusReady.TLabel")
             if payload.width in TAPES and payload.width != self.label.tape:
-                self.feedback.set(
-                    f"Loaded tape is {payload.width:g} mm. Set the design tape to match before printing."
-                )
+                if messagebox.askyesno(
+                    "Match loaded tape?",
+                    f"The printer has {payload.width:g} mm tape, but this design uses "
+                    f"{self.label.tape:g} mm tape. Switch the design to {payload.width:g} mm?",
+                    parent=self.root,
+                ):
+                    self.set_tape(payload.width)
+                else:
+                    self.feedback.set(
+                        f"Loaded tape is {payload.width:g} mm. Set the design tape to match before printing."
+                    )
         else:
             self.printer_text.set("Printer unavailable")
             self.show_error("Could not detect printer", payload)
@@ -936,7 +1006,10 @@ class App:
             self.canvas.canvas.bind(f"<Shift-{key}>", lambda event, move=move: move(event, amount=dots(1)))
 
 
-def main():
+def main(argv=None):
+    arguments = sys.argv[1:] if argv is None else argv
     root = tk.Tk()
-    App(root)
+    app = App(root)
+    if arguments:
+        app.open_path(arguments[0])
     root.mainloop()

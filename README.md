@@ -63,28 +63,33 @@ python3 -m venv .venv
    editable **Equipment tag** example. Templates also include **Cable ID**,
    **Storage label**, and **Numbered inventory**.
 2. Set the tape width and design length under **Label setup**. Length can be
-   5–300 mm. Enter the length and press **Set** or **Enter**.
+   5–300 mm. Enter the length and press **Set** or **Enter**, or choose
+   **Fit length to content** to trim the label to its objects with equal
+   margins at both ends.
 3. Add objects from the toolbar. Select on the label or in **Layers**, drag to
    move, and drag a corner handle to resize. Double-click an object to edit its
    content or style. Use the inspector for millimeter coordinates, size,
-   90° rotations, and alignment to the label edges or center.
+   90° rotations, and alignment to the label edges or center. Right-click an
+   object on the label or in **Layers** for edit, clipboard, and ordering
+   commands.
 4. Use **Raise** and **Lower** to change stacking order. The **Edit** menu has
    undo, redo, cut, copy, paste, duplicate, and delete. Object copy and paste
    work within the app, including when switching documents.
 5. Use **Fit** or set a zoom level from 25% to 400%. The rulers are marked in
-   millimeters. Turn on **Grid** for placement guides. The canvas scrolls at
-   high zoom levels, and Shift+mouse wheel scrolls horizontally.
+   millimeters. Turn on **Grid** for placement guides. While the grid is on,
+   dragging and resizing snap to it. The canvas scrolls at high zoom levels,
+   and Shift+mouse wheel scrolls horizontally.
 
 ### Objects and formatting
 
 | Object | Options |
 | --- | --- |
-| Text | Multiple lines, installed Linux fonts, bold, italic, left/center/right alignment, size in printer dots, and optional shrink-to-fit |
+| Text | Multiple lines, installed Linux fonts, bold, italic, left/center/right alignment, size in printer dots, optional shrink-to-fit, and white text on a black box |
 | Image | Import PNG, JPEG, GIF, BMP, TIFF, or WebP. Adjust the black-and-white threshold or use dithering. Transparency becomes white, and the image keeps its aspect ratio. |
 | Rectangle and ellipse | Outlines with adjustable stroke weight or solid fills |
 | Line | Horizontal rule with adjustable length and thickness via its width and height. Rotate it 90° for a vertical rule. |
 | QR code | Encode text, URLs, and data fields |
-| Barcode | Code 128, Code 39, and EAN-13, with an optional human-readable caption |
+| Barcode | Code 128, Code 39, EAN-13, EAN-8, UPC-A, and ITF (interleaved 2 of 5), with an optional human-readable caption. EAN and UPC values can omit the check digit, which is calculated for you. |
 | Symbols and date | Insert a symbol from the toolbar or the current local date. Both are editable as text. |
 
 QR and barcode objects use whole printer dots and preserve their white quiet
@@ -120,7 +125,8 @@ Asset,Location
 
 **File → Save** creates a `.ptlabel` document. It embeds imported images and
 data records, so they travel with the document. The receiving machine needs the
-same fonts for matching text metrics. You can reopen and edit the label later.
+same fonts for matching text metrics. You can reopen and edit the label later, or open it at launch with
+`ptouch-ui path/to/label.ptlabel`.
 
 Use **File → Export PNG** to export the current record as a 180 dpi,
 two-color indexed PNG. The exported raster is suitable for
@@ -129,8 +135,9 @@ two-color indexed PNG. The exported raster is suitable for
 ## Print over USB
 
 1. Power on the PT-2430PC, connect it over USB, and set its mode switch to **E**.
-2. Use **Detect printer** to read the loaded tape, then set the design to that
-   width. The app checks the tape and resolution again before starting a job.
+2. Use **Detect printer** to read the loaded tape. If the design uses a
+   different width, the app offers to switch it to the loaded tape. The app
+   checks the tape and resolution again before starting a job.
 3. Choose **Print** to preview the artwork and pick copies, output mode, and
    data records. **Mirror artwork** flips the print horizontally.
 4. Choose **Separate labels** to submit one printer job per label. Choose
@@ -166,7 +173,8 @@ the loaded tape and design stops the job. The app reports progress from
   mismatch means the design and loaded cassette widths differ.
 - If optional flags are rejected, leave those fields blank or upgrade
   `ptouch-print`. Basic printing needs its `--info` and `--image` options, and
-  strip printing also needs `--cutmark`.
+  strip printing also needs `--cutmark`. Older releases that do not report the
+  printer resolution in `--info` are treated as 180 dpi.
 - This version uses its own editable document format. Brother P-touch Editor
   files need to be recreated or brought in as exported images. USB hardware
   printing requires a connected printer and has to be verified on-device.

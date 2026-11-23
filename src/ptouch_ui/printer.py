@@ -75,10 +75,11 @@ def printer_status(serial=""):
     dpi = re.search(r"printer has\s+(\d+)\s*dpi", output, re.IGNORECASE)
     pixels = re.search(r"maximum printing width for this tape is\s+(\d+)\s*px", output, re.IGNORECASE)
     width = re.search(r"media width\s*=\s*(\d+(?:\.\d+)?)\s*mm", output, re.IGNORECASE)
-    if not all((dpi, pixels, width)):
+    if not (pixels and width):
         raise PrinterError(f"Could not read the loaded tape from ptouch-print.\n{output}")
     measured = float(width[1])
-    status = TapeStatus(3.5 if measured == 4 else measured, int(pixels[1]), int(dpi[1]))
+    # Older ptouch-print releases omit the resolution line; PT-series tape printers use 180 dpi.
+    status = TapeStatus(3.5 if measured == 4 else measured, int(pixels[1]), int(dpi[1]) if dpi else DPI)
     if status.dots == 0 or not status.width:
         raise PrinterError("No printable tape was detected.")
     return status

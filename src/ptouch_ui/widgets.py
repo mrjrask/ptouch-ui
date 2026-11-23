@@ -102,6 +102,7 @@ class ObjectDialog(Dialog):
             self.check(form, "Bold", "bold")
             self.check(form, "Italic", "italic")
             self.check(form, "Shrink text to fit", "fit")
+            self.check(form, "White text on black", "inverted")
         elif element.kind == "Barcode":
             self.choice(form, "Format", "barcode", BARCODES)
             self.check(form, "Show value below bars", "caption")
@@ -159,11 +160,12 @@ class ObjectDialog(Dialog):
 
 
 class LabelCanvas(ttk.Frame):
-    def __init__(self, parent, select, change, edit):
+    def __init__(self, parent, select, change, edit, context=None):
         super().__init__(parent, style="Work.TFrame")
         self.select = select
         self.change = change
         self.edit = edit
+        self.context = context
         self.label = None
         self.index = 0
         self.selected = None
@@ -191,6 +193,7 @@ class LabelCanvas(ttk.Frame):
         self.canvas.bind("<B1-Motion>", self.pointer_move)
         self.canvas.bind("<ButtonRelease-1>", self.pointer_up)
         self.canvas.bind("<Double-Button-1>", self.double_click)
+        self.canvas.bind("<Button-3>", self.context_click)
         self.canvas.bind("<Button-4>", lambda _event: self.canvas.yview_scroll(-3, "units"))
         self.canvas.bind("<Button-5>", lambda _event: self.canvas.yview_scroll(3, "units"))
         self.canvas.bind("<Shift-Button-4>", lambda _event: self.canvas.xview_scroll(-3, "units"))
@@ -268,10 +271,18 @@ class LabelCanvas(ttk.Frame):
                 canvas.create_text(left - 25, y, text=str(mm), anchor="e", fill=RULER, font=self.ruler_font)
         canvas.create_text(left - 15, top - 31, text="mm", anchor="e", fill=RULER, font=self.ruler_font)
 
+    def grid_step(self):
+        """Grid spacing in printer dots: 1 mm, or 5 mm when 1 mm would be too dense to see."""
+        return dots(1) * (5 if dots(1) * self.scale < 7 else 1)
+
+    def snap(self, value):
+        if not self.grid_enabled:
+            return value
+        step = self.grid_step()
+        return round(value / step) * step
+
     def draw_grid(self, left, top, right, bottom):
-        spacing = dots(1) * self.scale
-        if spacing < 7:
-            spacing *= 5
+        spacing = self.grid_step() * self.scale
         x, y = left + spacing, top + spacing
         while x < right:
             self.canvas.create_line(x, top, x, bottom, fill="#9aabc5", stipple="gray25")
@@ -288,6 +299,20 @@ class LabelCanvas(ttk.Frame):
     def point(self, event):
         return self.canvas.canvasx(event.x), self.canvas.canvasy(event.y)
 
+    def hit(self, x, y):
+        for index in reversed(range(len(self.label.elements))):
+            left, top, right, bottom = self.box(self.label.elements[index])
+            if left - 3 <= x <= right + 3 and top - 3 <= y <= bottom + 3:
+                return index
+        return None
+
+    def context_click(self, event):
+        self.canvas.focus_set()
+        self.drag = None
+        self.select(self.hit(*self.point(event)))
+        if self.context is not None:
+            self.context(event.x_root, event.y_root)
+
     def pointer_down(self, event):
         self.canvas.focus_set()
         x, y = self.point(event)
@@ -298,14 +323,10 @@ class LabelCanvas(ttk.Frame):
                 if abs(x - cx) <= 7 and abs(y - cy) <= 7:
                     self.drag = self.selected, (x, y), item, direction, item
                     return
-        for index in reversed(range(len(elements))):
-            item = elements[index]
-            left, top, right, bottom = self.box(item)
-            if left - 3 <= x <= right + 3 and top - 3 <= y <= bottom + 3:
-                self.select(index)
-                self.drag = index, (x, y), item, "", item
-                return
-        self.select(None)
+        index = self.hit(x, y)
+        self.select(index)
+        if index is not None:
+            self.drag = index, (x, y), elements[index], "", elements[index]
 
     def pointer_move(self, event):
         if self.drag is None:
@@ -319,8 +340,8 @@ class LabelCanvas(ttk.Frame):
             width, height = self.label.size
             item = replace(
                 original,
-                x=max(0, min(width - original.width, original.x + dx)),
-                y=max(0, min(height - original.height, original.y + dy)),
+                x=max(0, min(width - original.width, self.snap(original.x + dx))),
+                y=max(0, min(height - original.height, self.snap(original.y + dy))),
             )
         else:
             left, top = max(0, original.x), max(0, original.y)
@@ -332,13 +353,13 @@ class LabelCanvas(ttk.Frame):
             left, top = min(left, max_width - 1), min(top, max_height - 1)
             right, bottom = max(left + 1, right), max(top + 1, bottom)
             if "w" in direction:
-                left = max(0, min(right - 1, left + dx))
+                left = max(0, min(right - 1, self.snap(left + dx)))
             else:
-                right = max(left + 1, min(max_width, right + dx))
+                right = max(left + 1, min(max_width, self.snap(right + dx)))
             if "n" in direction:
-                top = max(0, min(bottom - 1, top + dy))
+                top = max(0, min(bottom - 1, self.snap(top + dy)))
             else:
-                bottom = max(top + 1, min(max_height, bottom + dy))
+                bottom = max(top + 1, min(max_height, self.snap(bottom + dy)))
             item = replace(original, x=left, y=top, width=right - left, height=bottom - top)
         self.drag = index, (origin_x, origin_y), original, direction, item
         self.redraw()

@@ -1,3 +1,4 @@
+from dataclasses import replace
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -10,6 +11,8 @@ from ptouch_ui.document import (
     TEMPLATES,
     Element,
     Label,
+    content_length,
+    dots,
     load_label,
     read_csv,
     save_label,
@@ -93,7 +96,14 @@ class DocumentTests(TestCase):
         self.assertNotEqual(first.tobytes(), render(label, today=date(2026, 1, 3))[0].tobytes())
 
     def test_every_barcode_format_renders(self):
-        for name, value in (("Code 128", "Bin 7"), ("Code 39", "bin-07"), ("EAN-13", "590123412345")):
+        for name, value in (
+            ("Code 128", "Bin 7"),
+            ("Code 39", "bin-07"),
+            ("EAN-13", "590123412345"),
+            ("EAN-8", "96385074"),
+            ("UPC-A", "03600029145"),
+            ("ITF", "12345678"),
+        ):
             with self.subTest(barcode=name):
                 label = Label(
                     tape=24, length=80, elements=(Element("Barcode", 0, 0, 540, 128, value, barcode=name),)
@@ -117,3 +127,35 @@ class DocumentTests(TestCase):
             path.write_bytes("Name\nCaf\xe9\n".encode("latin-1"))
             with self.assertRaisesRegex(ValueError, "UTF-8"):
                 read_csv(path)
+
+    def test_barcode_check_digits_and_itf_length_are_validated(self):
+        for name, value, message in (
+            ("UPC-A", "036000291453", "check digit"),
+            ("EAN-8", "12345", "7 digits or 8"),
+            ("ITF", "123", "even number"),
+        ):
+            with self.subTest(barcode=name):
+                label = Label(
+                    tape=24, length=80, elements=(Element("Barcode", 0, 0, 540, 128, value, barcode=name),)
+                )
+                _, issues = render(label)
+                self.assertEqual(1, len(issues))
+                self.assertIn(message, issues[0])
+
+    def test_inverted_text_prints_white_on_a_black_box(self):
+        text = Element("Text", 10, 10, 200, 50, "HELLO", font_size=30)
+        normal, _ = render(Label(elements=(text,)))
+        inverted, issues = render(Label(elements=(replace(text, inverted=True),)))
+        self.assertEqual([], issues)
+        self.assertEqual(255, normal.getpixel((11, 11)))
+        self.assertEqual(0, inverted.getpixel((11, 11)))
+        self.assertEqual(255, inverted.getpixel((5, 5)))
+        self.assertEqual((0, 255), inverted.crop((10, 10, 210, 60)).getextrema())
+
+    def test_content_length_keeps_matching_margins(self):
+        label = Label(length=200, elements=(Element("Rectangle", dots(4), 0, dots(30), 10),))
+        length = content_length(label)
+        self.assertGreaterEqual(dots(length), dots(4) * 2 + dots(30))
+        self.assertLessEqual(length, 38.1)
+        self.assertEqual(5, content_length(Label(elements=(Element("Line", 0, 0, 3, 2),))))
+        self.assertEqual(70, content_length(Label()))
