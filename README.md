@@ -5,30 +5,56 @@ Brother PT-2430PC. It uses your installed [ptouch-print][upstream] to talk to th
 printer over USB. You can design, save, preview, and export labels with the
 printer disconnected.
 
-## Install and launch
+## Install, update, and uninstall
 
 You need Python 3.10 or newer, Tk, Fontconfig, and a Linux desktop session.
 For printing, install [ptouch-print][upstream] and confirm that it can see the
 printer using the same user account that will run the app.
 
-On Debian or Ubuntu, install the desktop dependencies and launch from a virtual environment.
+On Debian or Ubuntu, install the desktop dependencies, clone the repository,
+and run the installer as your desktop user.
 
 ```sh
-sudo apt install python3 python3-tk python3-venv fontconfig fonts-dejavu-core
+sudo apt install git python3 python3-tk python3-venv fontconfig fonts-dejavu-core
 git clone https://github.com/mrjrask/ptouch-ui.git
 cd ptouch-ui
+./install.sh
+```
+
+Launch **P-Touch UI** from your desktop app menu or run
+`~/.local/bin/ptouch-ui`. The installer adds a per-user menu entry, stores its
+isolated Python environment under `$XDG_DATA_HOME/ptouch-ui` (normally
+`~/.local/share/ptouch-ui`), and installs commands in `~/.local/bin` (or
+`$XDG_BIN_HOME` when set to an absolute path).
+Pillow, qrcode, and python-barcode are installed by pip.
+
+Run `~/.local/bin/ptouch-ui-update` to check for the latest commit on the
+repository's `main` branch and install it. Git and internet access are
+required. The updater leaves a working installation in place if downloading
+or building the new version fails. Older environments stay available to
+already-running app windows, and the uninstaller removes those environments.
+
+Run `~/.local/bin/ptouch-ui-uninstall` to remove the installed app, its
+commands, and its desktop menu entry. Saved labels, exported PNGs, the source
+checkout, and the separate `ptouch-print` installation stay in place.
+`./update.sh` and `./uninstall.sh` in the clone provide the same operations.
+
+The app finds `ptouch-print` on `PATH` by default. For a locally built
+binary, set `PTOUCH_PRINT` to its full path when launching from a terminal.
+
+```sh
+PTOUCH_PRINT=/full/path/to/ptouch-print ~/.local/bin/ptouch-ui
+```
+
+### Run from a checkout
+
+For development or a checkout-local installation, use a virtual environment
+in the repository.
+
+```sh
 python3 -m venv .venv
 .venv/bin/pip install .
 .venv/bin/ptouch-ui
-```
-
-Pillow, qrcode, and python-barcode are installed by pip. Other distributions can
-use their own Tk and Fontconfig packages with the same Python installation
-steps. The app finds `ptouch-print` on `PATH` by default. For a locally built
-binary, set `PTOUCH_PRINT` to its full path before launching.
-
-```sh
-PTOUCH_PRINT=/full/path/to/ptouch-print .venv/bin/ptouch-ui
 ```
 
 ## Design a label
@@ -170,7 +196,8 @@ xvfb-run -a .venv/bin/python -m unittest discover -s tests -v
 
 GitHub Actions builds and installs the wheel on Python 3.10 and 3.12, checks
 formatting and lint, and runs document, raster, and print integration tests.
-The print tests use a simulated `ptouch-print` executable. The Python 3.12 job
-also runs the desktop smoke test under Xvfb.
+It also checks installer cleanup and update failure recovery. The print tests
+use a simulated `ptouch-print` executable. The Python 3.12 job also runs the
+desktop smoke test under Xvfb.
 
 [upstream]: https://git.familie-radermacher.ch/linux/ptouch-print.git
