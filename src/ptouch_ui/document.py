@@ -8,6 +8,7 @@ import re
 import stat
 from dataclasses import asdict, dataclass, replace
 from datetime import date
+from io import StringIO
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -18,6 +19,7 @@ MIN_LENGTH, MAX_LENGTH = 5, 300
 MAX_FONT_SIZE = 300
 MAX_RECORDS = 250
 MAX_FILE_BYTES = 20_000_000
+MAX_RESOLVED_LENGTH = 4000
 KINDS = ("Text", "Image", "Rectangle", "Ellipse", "Line", "QR code", "Barcode")
 BARCODES = ("Code 128", "Code 39", "EAN-13", "EAN-8", "UPC-A", "ITF")
 FIELD = re.compile(r"\{\{\s*([^{}]+?)\s*\}\}")
@@ -113,22 +115,57 @@ class Label:
 
 def substitute(value, fields):
     missing = []
-
-    def resolve(match):
+    chunks = []
+    length = position = 0
+    for match in FIELD.finditer(value):
         key = match[1]
+        replacement = fields.get(key, match[0])
         if key not in fields:
             missing.append(key)
-        return fields.get(key, match[0])
+        length += match.start() - position + len(replacement)
+        if length > MAX_RESOLVED_LENGTH:
+            raise ValueError("Resolved content exceeds 4,000 characters.")
+        chunks.extend((value[position : match.start()], replacement))
+        position = match.end()
+    if length + len(value) - position > MAX_RESOLVED_LENGTH:
+        raise ValueError("Resolved content exceeds 4,000 characters.")
+    chunks.append(value[position:])
+    return "".join(chunks), list(dict.fromkeys(missing))
 
-    resolved = FIELD.sub(resolve, value)
-    return resolved, list(dict.fromkeys(missing))
+
+def _read_input(path, description):
+    def open_nonblocking(filename, flags):
+        return os.open(filename, flags | os.O_NONBLOCK)
+
+    with open(path, "rb", opener=open_nonblocking) as source:
+        info = os.fstat(source.fileno())
+        if not stat.S_ISREG(info.st_mode):
+            raise ValueError(f"Choose a regular file for the {description}.")
+        if info.st_size > MAX_FILE_BYTES:
+            raise ValueError(f"The {description} exceeds 20 MB.")
+        content = source.read(MAX_FILE_BYTES + 1)
+    if len(content) > MAX_FILE_BYTES:
+        raise ValueError(f"The {description} exceeds 20 MB.")
+    return content
 
 
 def load_label(path):
-    path = Path(path)
-    if path.stat().st_size > MAX_FILE_BYTES:
-        raise ValueError("The label document exceeds 20 MB.")
-    root = json.loads(path.read_text(encoding="utf-8"))
+    def validate_unicode(mapping):
+        # JSON escape sequences can decode to lone surrogates, which Tk and UTF-8 reject.
+        for key, value in mapping.items():
+            if not key.isascii():
+                key.encode("utf-8")
+            if isinstance(value, str) and not value.isascii():
+                value.encode("utf-8")
+        return mapping
+
+    try:
+        content = _read_input(path, "label document").decode("utf-8")
+        root = json.loads(content, object_hook=validate_unicode)
+    except RecursionError as error:
+        raise ValueError("The label document is nested too deeply.") from error
+    except UnicodeError as error:
+        raise ValueError("The label document contains invalid UTF-8 text.") from error
     if not isinstance(root, dict) or type(root.get("version")) is not int or root["version"] != 1:
         raise ValueError("Unsupported label document format.")
     elements = root.get("elements")
@@ -148,8 +185,10 @@ def load_label(path):
 
 def save_label(path, label):
     path = Path(os.path.realpath(path))
-    payload = json.dumps({"version": 1, **asdict(label)}, indent=2, ensure_ascii=False) + "\n"
-    if len(payload.encode("utf-8")) > MAX_FILE_BYTES:
+    payload = (
+        json.dumps({"version": 1, **asdict(label)}, indent=2, ensure_ascii=False).encode("utf-8") + b"\n"
+    )
+    if len(payload) > MAX_FILE_BYTES:
         raise ValueError("The label document exceeds 20 MB.")
     try:
         mode = path.stat().st_mode
@@ -160,7 +199,7 @@ def save_label(path, label):
     with TemporaryDirectory(prefix=".ptouch-ui-", dir=path.parent) as directory:
         temporary_path = Path(directory) / "label"
         # The OS applies the current umask to new files without changing it for other threads.
-        with temporary_path.open("x", encoding="utf-8") as temporary:
+        with temporary_path.open("xb") as temporary:
             temporary.write(payload)
         if mode is not None:
             temporary_path.chmod(stat.S_IMODE(mode))
@@ -169,13 +208,14 @@ def save_label(path, label):
 
 def read_csv(path):
     try:
-        return parse_csv(path)
+        content = _read_input(path, "CSV file").decode("utf-8-sig")
     except UnicodeDecodeError as error:
         raise ValueError("Save the CSV with UTF-8 encoding and import it again.") from error
+    return parse_csv(content)
 
 
-def parse_csv(path):
-    with Path(path).open(encoding="utf-8-sig", newline="") as source:
+def parse_csv(content):
+    with StringIO(content, newline="") as source:
         reader = csv.reader(source, strict=True)
         headers = [name.strip() for name in next(reader, [])]
         if not headers or any(not name or "{" in name or "}" in name for name in headers):

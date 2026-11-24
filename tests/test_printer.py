@@ -42,6 +42,8 @@ if "--info" in args:
 elif args == ["--help"]:
     if os.environ.get("PRINTER_MODE") == "no-chain":
         print("--image --cutmark --pad <n>")
+    elif os.environ.get("PRINTER_MODE") == "no-cutmark":
+        print("--image --no--cutmark --pad <n> --chain")
     else:
         print("--image --cutmark --pad <n> --chain --serial=<serial> --feed=<dots>")
 elif "--image" in args or "--pad" in args:
@@ -167,6 +169,14 @@ class PrinterTests(TestCase):
         self.assertEqual(["--chain", "--pad", "16"], jobs[0])
         self.assertNotIn("--chain", jobs[1])
         self.assertEqual(2, jobs[1].count("--image"))
+
+    def test_strip_requires_cut_marks_before_feeding_the_blank_leader(self):
+        with (
+            patch.dict(os.environ, {"PRINTER_MODE": "no-cutmark"}),
+            self.assertRaisesRegex(PrinterError, "does not support strips with cut marks"),
+        ):
+            print_images([self.image], 12, PrintOptions(copies=2, strip=True, precut=True))
+        self.assertFalse(self.log.exists())
 
     def test_precut_requires_chain_support(self):
         with (

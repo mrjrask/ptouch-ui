@@ -28,10 +28,16 @@ jobs:
           python-version: ${{ matrix.python }}
           cache: pip
           cache-dependency-path: pyproject.toml
-      - name: Build and install the wheel
+      - name: Build distributions and test the installed wheel
         run: |
-          python -m pip wheel --no-deps --wheel-dir dist .
+          python -m pip install build twine
+          python -m build
+          python -m twine check --strict dist/*
           python -m pip install dist/*.whl
+          python -m pip check
+          ptouch-ui --help
+          ptouch-ui --version
+          python -m ptouch_ui --version
       - name: Check formatting and lint
         if: matrix.python == '3.12'
         run: |
@@ -49,6 +55,13 @@ jobs:
             sudo apt-get install -y --no-install-recommends xvfb xauth
           fi
           xvfb-run -a python -m unittest discover -s tests -v
+      - name: Upload distribution artifacts
+        if: matrix.python == '3.12'
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-distributions
+          path: dist/
+          if-no-files-found: error
 
   installer:
     name: Installer on ${{ matrix.name }}
@@ -69,7 +82,7 @@ jobs:
             image: debian:trixie
     steps:
       - uses: actions/checkout@v5
-      - name: Install, reinstall, and uninstall with ptouch-print
+      - name: Install, reinstall, and uninstall the desktop app
         env:
           IMAGE: ${{ matrix.image }}
         run: |

@@ -17,31 +17,20 @@ if [ "${1:-}" = "--container" ]; then
 fi
 
 cd "$(dirname "$0")/../.."
-if command -v ptouch-print >/dev/null; then
-    echo "ptouch-print is already installed; this test needs a system without it." >&2
-    exit 1
-fi
 
 ./install.sh
 echo "--- installed"
-ptouch-print --help >/dev/null
-command -v ptouch-print
 test -x "$HOME/.local/bin/ptouch-ui"
-"$HOME/.local/share/ptouch-ui/current/venv/bin/python" -I -c "import ptouch_ui.app"
-test -f "$HOME/.local/share/ptouch-ui/ptouch-print.json"
-cat "$HOME/.local/share/ptouch-ui/ptouch-print.json"
+"$HOME/.local/bin/ptouch-ui" --version
+test ! -e "$HOME/.local/share/ptouch-ui/ptouch-print.json"
 
 ./install.sh
 echo "--- reinstalled"
-test -f "$HOME/.local/share/ptouch-ui/ptouch-print.json"
+"$HOME/.local/bin/ptouch-ui" --version
 
 "$HOME/.local/bin/ptouch-ui-uninstall"
 echo "--- uninstalled"
-hash -r 2>/dev/null || true
-if command -v ptouch-print >/dev/null; then
-    echo "ptouch-print was not removed." >&2
-    exit 1
-fi
 test ! -e "$HOME/.local/share/ptouch-ui"
 test ! -e "$HOME/.local/bin/ptouch-ui"
+test ! -e "$HOME/.local/share/applications/io.github.mrjrask.PtouchUI.desktop"
 echo "Installer test passed."

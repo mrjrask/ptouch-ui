@@ -3,6 +3,7 @@
 import json
 import os
 from pathlib import Path
+from tempfile import TemporaryDirectory
 
 LIMIT = 8
 
@@ -17,7 +18,7 @@ def recent_file():
 def load_recent():
     try:
         paths = json.loads(recent_file().read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+    except (OSError, RecursionError, ValueError):
         return []
     if not isinstance(paths, list):
         return []
@@ -28,16 +29,20 @@ def store_recent(paths):
     target = recent_file()
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
-        temporary = target.with_suffix(".tmp")
-        temporary.write_text(json.dumps(paths[:LIMIT], indent=2) + "\n", encoding="utf-8")
-        temporary.replace(target)
+        with TemporaryDirectory(prefix=".recent-", dir=target.parent) as directory:
+            temporary = Path(directory) / target.name
+            temporary.write_text(json.dumps(paths[:LIMIT], indent=2) + "\n", encoding="utf-8")
+            temporary.replace(target)
     except OSError:
         # The list is a convenience; never block opening or saving a label because of it.
         pass
 
 
 def remember_recent(path):
-    path = str(Path(path).resolve())
+    try:
+        path = str(Path(path).resolve())
+    except (OSError, RuntimeError, ValueError):
+        return load_recent()
     paths = [path, *(item for item in load_recent() if item != path)][:LIMIT]
     store_recent(paths)
     return paths

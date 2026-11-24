@@ -1,4 +1,5 @@
 import json
+import os
 from dataclasses import replace
 from datetime import date
 from pathlib import Path
@@ -8,6 +9,8 @@ from unittest import TestCase
 from PIL import Image
 
 from ptouch_ui.document import (
+    MAX_FILE_BYTES,
+    MAX_RESOLVED_LENGTH,
     TAPES,
     TEMPLATES,
     Element,
@@ -17,6 +20,7 @@ from ptouch_ui.document import (
     load_label,
     read_csv,
     save_label,
+    substitute,
     template,
 )
 from ptouch_ui.raster import import_image, largest_text_size, render, save_png
@@ -144,6 +148,40 @@ class DocumentTests(TestCase):
                     path.write_text(json.dumps({**label, **override}), encoding="utf-8")
                     with self.assertRaisesRegex(ValueError, "objects and records as lists"):
                         load_label(path)
+
+    def test_non_regular_and_oversized_inputs_are_rejected(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "selected"
+            os.mkfifo(path)
+            for read in (load_label, read_csv):
+                with self.assertRaisesRegex(ValueError, "regular file"):
+                    read(path)
+            path.unlink()
+            with path.open("wb") as source:
+                source.truncate(MAX_FILE_BYTES + 1)
+            for read in (load_label, read_csv):
+                with self.assertRaisesRegex(ValueError, "exceeds 20 MB"):
+                    read(path)
+
+    def test_rejects_deep_json_and_invalid_unicode(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "label.ptlabel"
+            path.write_text("[" * 2000 + "]" * 2000, encoding="utf-8")
+            with self.assertRaises(ValueError):
+                load_label(path)
+            label = {"version": 1, "tape": 12, "length": 70, "elements": [], "rows": [{"id": "\ud800"}]}
+            path.write_text(json.dumps(label), encoding="utf-8")
+            with self.assertRaisesRegex(ValueError, "invalid UTF-8"):
+                load_label(path)
+
+    def test_field_expansion_is_bounded_by_resolved_size(self):
+        field = "x" * MAX_RESOLVED_LENGTH
+        self.assertEqual((field, []), substitute("{{item}}{{empty}}", {"item": field, "empty": ""}))
+        value = "{{item}}{{item}}"
+        with self.assertRaisesRegex(ValueError, "4,000 characters"):
+            substitute(value, {"item": field})
+        label = Label(elements=(Element("Text", 0, 0, 100, 25, value),), rows=({"item": field},))
+        self.assertEqual(["Text 1. Resolved content exceeds 4,000 characters."], render(label)[1])
 
     def test_long_thin_import_keeps_a_printable_pixel(self):
         with TemporaryDirectory() as directory:

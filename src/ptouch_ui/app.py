@@ -1,9 +1,11 @@
 """Main window for the P-Touch label editor."""
 
+import argparse
 import csv
 import sys
 import tkinter as tk
 from dataclasses import replace
+from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from queue import Empty, SimpleQueue
 from threading import Thread
@@ -32,7 +34,7 @@ from .document import (
 from .print_dialog import PrintDialog, background
 from .printer import printer_problem, printer_status
 from .raster import import_image, largest_text_size, list_fonts, render, save_png
-from .recent import forget_recent, load_recent, remember_recent
+from .recent import forget_recent, load_recent, remember_recent, store_recent
 from .widgets import (
     BLUE,
     INK,
@@ -193,7 +195,8 @@ class App:
         self.build()
         self.refresh()
         self.bind_keys()
-        root.after_idle(self.detect)
+        self.device_callback = root.after_idle(self.detect)
+        root.bind("<Destroy>", self.cancel_device_check, add=True)
 
     def build(self):
         root = self.root
@@ -584,11 +587,11 @@ class App:
         obj = self.object
         if obj is None or obj.kind != "Text":
             return
-        text, _missing = substitute(obj.value, self.label.fields(self.record))
         try:
+            text, _missing = substitute(obj.value, self.label.fields(self.record))
             size = largest_text_size(obj, text)
-        except OSError as error:
-            self.show_error("Could not load font", error)
+        except (OSError, ValueError) as error:
+            self.show_error("Could not fit text", error)
             return
         self.apply_text_style(font_size=size)
 
@@ -764,8 +767,7 @@ class App:
             menu.add_command(label="No recent labels", state="disabled")
 
     def clear_recent(self):
-        for path in load_recent():
-            forget_recent(path)
+        store_recent([])
         self.update_recent_menu([])
 
     def save(self, save_as=False):
@@ -1106,24 +1108,32 @@ class App:
         self.record = max(0, min(self.record + delta, len(self.label.rows) - 1))
         self.refresh(rebuild=False)
 
+    def cancel_device_check(self, event):
+        if event.widget is self.root:
+            self.root.after_cancel(self.device_callback)
+
+    def schedule_device_check(self, delay, callback, *args):
+        self.root.after_cancel(self.device_callback)
+        self.device_callback = self.root.after(delay, callback, *args)
+
     def detect(self):
         """Check the printer in the background, then schedule the next check."""
         if self.checking:
             return
         # Leave the USB device to a print job, and keep prompts out of other open dialogs.
         if self.print_dialog is not None or self.dialog_open():
-            self.root.after(DETECT_INTERVAL, self.detect)
+            self.schedule_device_check(DETECT_INTERVAL, self.detect)
             return
         self.checking = True
         messages = SimpleQueue()
         Thread(target=background, args=(printer_status, messages), daemon=True).start()
-        self.root.after(70, self.poll_device, messages)
+        self.schedule_device_check(70, self.poll_device, messages)
 
     def poll_device(self, messages):
         try:
             event, payload = messages.get_nowait()
         except Empty:
-            self.root.after(70, self.poll_device, messages)
+            self.schedule_device_check(70, self.poll_device, messages)
             return
         self.checking = False
         if event == "done":
@@ -1132,7 +1142,7 @@ class App:
             self.printer_indicator.configure(style="StatusReady.TLabel", cursor="")
             # Match the canvas only when a printer appears or its cassette changes, so Undo sticks,
             # and only when no dialog is open; otherwise a later check does it.
-            if payload.width != self.loaded_tape and not self.dialog_open():
+            if payload.width != self.loaded_tape and self.print_dialog is None and not self.dialog_open():
                 self.loaded_tape = payload.width
                 self.match_tape(payload.width)
         else:
@@ -1140,7 +1150,7 @@ class App:
             self.printer_error = payload
             self.printer_text.set(printer_problem(payload))
             self.printer_indicator.configure(style="PanelMuted.TLabel", cursor="hand2")
-        self.root.after(DETECT_INTERVAL, self.detect)
+        self.schedule_device_check(DETECT_INTERVAL, self.detect)
 
     def dialog_open(self):
         # Ask Tcl directly: grab_current() raises KeyError for Tcl-created dialogs like message boxes.
@@ -1217,9 +1227,21 @@ class App:
 
 
 def main(argv=None):
-    arguments = sys.argv[1:] if argv is None else argv
-    root = tk.Tk()
+    parser = argparse.ArgumentParser(prog="ptouch-ui", description="Design and print labels on Linux.")
+    parser.add_argument("label", nargs="?", type=Path, help="open an editable .ptlabel document")
+    try:
+        release = version("ptouch-ui")
+    except PackageNotFoundError:
+        release = "development checkout"
+    parser.add_argument("--version", action="version", version=f"%(prog)s {release}")
+    args = parser.parse_args(argv)
+    try:
+        root = tk.Tk()
+    except tk.TclError as error:
+        print(f"Could not open P-Touch UI. Start it from a Linux desktop session. {error}", file=sys.stderr)
+        return 1
     app = App(root)
-    if arguments:
-        app.open_path(arguments[0])
+    if args.label is not None:
+        app.open_path(args.label)
     root.mainloop()
+    return 0

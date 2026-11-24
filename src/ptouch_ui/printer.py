@@ -23,7 +23,7 @@ DEVICE_LOCK = RLock()
 
 
 def supports(available, option):
-    return re.search(rf"{option}(?:[\s=,]|$)", available) is not None
+    return re.search(rf"(?<![\w-]){re.escape(option)}(?=[\s=,\]]|$)", available) is not None
 
 
 class PrinterError(RuntimeError):
@@ -47,14 +47,14 @@ class PrintOptions:
     serial: str = ""
 
     def __post_init__(self):
-        if not 1 <= self.copies <= 99:
+        if type(self.copies) is not int or not 1 <= self.copies <= 99:
             raise ValueError("Use 1–99 copies.")
-        if self.feed is not None and not 0 <= self.feed <= 1000:
+        if self.feed is not None and (type(self.feed) is not int or not 0 <= self.feed <= 1000):
             raise ValueError("Use 0–1000 feed dots, or leave it blank for the printer default.")
 
 
 def run(arguments, timeout):
-    executable = shutil.which(os.environ.get("PTOUCH_PRINT", "ptouch-print"))
+    executable = shutil.which(os.environ.get("PTOUCH_PRINT") or "ptouch-print")
     if not executable:
         raise PrinterError("ptouch-print was not found. Install it or add it to PATH.")
     try:
@@ -156,8 +156,10 @@ def send_images(images, tape, options, report):
     if any(image.size != images[0].size for image in images):
         raise PrinterError("All labels in a print job must have the same size.")
     arguments = ["--serial", options.serial] if options.serial else []
-    if options.feed is not None or options.serial or options.precut:
+    if options.feed is not None or options.serial or options.precut or (options.strip and count > 1):
         available = details(run(["--help"], timeout=8))
+        if options.strip and count > 1 and not supports(available, "--cutmark"):
+            raise PrinterError("This ptouch-print version does not support strips with cut marks.")
         if options.feed is not None:
             if not supports(available, "--feed"):
                 raise PrinterError("This ptouch-print version does not support feed adjustment.")
@@ -187,29 +189,29 @@ def send_images(images, tape, options, report):
                 try:
                     command_output(run([*arguments, "--chain", "--pad", str(PRECUT_DOTS)], timeout=60))
                 except PrinterError as error:
-                    raise PrinterError(f"The leader could not be fed. {RELEASE_HINT}\n{error}") from error
+                    raise PrinterError(f"The leader could not be fed.\n{error}") from error
 
+        hint = f" {RELEASE_HINT}" if options.precut else ""
         if options.strip:
-            precut()
             jobs = []
             for index, path in enumerate(queue):
                 if index:
                     jobs.append("--cutmark")
                 jobs.extend(("--image", path))
             try:
+                precut()
                 command_output(run([*arguments, *jobs], timeout=max(90, 20 * count)))
             except PrinterError as error:
                 raise PrinterError(
-                    f"The strip did not complete. Check the tape before printing again.\n{error}"
+                    f"The strip did not complete. Check the tape before printing again.{hint}\n{error}"
                 ) from error
             report(count)
         else:
             for number, path in enumerate(queue, start=1):
                 # Each label stays its own fed-and-cut job, so labels never run together uncut.
-                precut()
                 try:
+                    precut()
                     command_output(run([*arguments, "--image", path], timeout=90))
                 except PrinterError as error:
-                    hint = f" {RELEASE_HINT}" if options.precut else ""
                     raise PrinterError(f"Completed {number - 1} of {count} labels.{hint}\n{error}") from error
                 report(number)
