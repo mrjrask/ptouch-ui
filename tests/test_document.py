@@ -19,7 +19,7 @@ from ptouch_ui.document import (
     save_label,
     template,
 )
-from ptouch_ui.raster import import_image, render, save_png
+from ptouch_ui.raster import import_image, largest_text_size, render, save_png
 
 
 class DocumentTests(TestCase):
@@ -204,6 +204,16 @@ class DocumentTests(TestCase):
         self.assertEqual(0, rounded.getpixel((30, 30)))
         with self.assertRaises(ValueError):
             replace(square, radius=65)
+
+    def test_largest_text_size_fills_the_box_without_overflowing(self):
+        text = Element("Text", 0, 0, 300, 60, "ASSET", font_size=12, fit=False)
+        size = largest_text_size(text, text.value)
+        self.assertGreater(size, 12)
+        self.assertEqual([], render(Label(elements=(replace(text, font_size=size),)))[1])
+        self.assertTrue(render(Label(elements=(replace(text, font_size=size + 1),)))[1])
+        # A quarter turn lays the text out along the box's height.
+        self.assertLess(largest_text_size(replace(text, rotation=90), text.value), size)
+        self.assertEqual(12, largest_text_size(text, "  "))
 
 
 class RecentFileTests(TestCase):

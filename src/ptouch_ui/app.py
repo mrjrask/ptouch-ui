@@ -26,11 +26,12 @@ from .document import (
     numbered_rows,
     read_csv,
     save_label,
+    substitute,
     template,
 )
 from .print_dialog import PrintDialog, background
 from .printer import printer_status
-from .raster import import_image, list_fonts, render, save_png
+from .raster import import_image, largest_text_size, list_fonts, render, save_png
 from .recent import forget_recent, load_recent, remember_recent
 from .widgets import (
     BLUE,
@@ -41,12 +42,16 @@ from .widgets import (
     SURFACE,
     WORKSPACE,
     Dialog,
+    FontPicker,
     LabelCanvas,
     ObjectDialog,
+    SizeSpinbox,
+    step_font_size,
 )
 
 PROJECT_FILES = [("P-Touch label", "*.ptlabel"), ("All files", "*")]
 ZOOMS = ("Fit", "25%", "50%", "100%", "150%", "200%", "300%", "400%")
+TEXT_STYLE = ("font", "font_size", "bold", "italic")
 LAYER_PREFIX = {"Text": "T", "QR code": "QR", "Barcode": "BAR"}
 
 
@@ -166,6 +171,8 @@ class App:
         self.future = []
         self.clipboard = None
         self.fonts = None
+        # The font settings most recently chosen; new text objects start with them.
+        self.text_style = {}
         self.checking = False
         self.print_dialog = None
         self.title = tk.StringVar(root)
@@ -429,6 +436,7 @@ class App:
             self.object_form, text="Edit content / style…", command=self.edit_object
         )
         self.edit_button.pack(fill="x", pady=(7, 9))
+        self.build_text_controls(self.object_form)
         form = ttk.Frame(self.object_form, style="Panel.TFrame")
         form.pack(fill="x")
         self.geometry = {}
@@ -475,6 +483,100 @@ class App:
             ],
         )
         align.pack(anchor="w", pady=(8, 0))
+
+    def build_text_controls(self, parent):
+        self.text_form = ttk.Frame(parent, style="Panel.TFrame")
+        form = self.text_form
+        self.font_family = tk.StringVar(self.root)
+        self.font_size = tk.StringVar(self.root)
+        self.font_bold = tk.BooleanVar(self.root)
+        self.font_italic = tk.BooleanVar(self.root)
+        self.text_align = tk.StringVar(self.root)
+        form.columnconfigure(0, weight=1)
+        self.font_picker = FontPicker(form, (), textvariable=self.font_family, width=14)
+        self.font_picker.grid(row=0, column=0, sticky="ew", pady=(0, 5))
+        self.font_picker.bind("<<ComboboxSelected>>", lambda _event: self.apply_text_style(), add="+")
+        self.font_picker.bind("<Return>", lambda _event: self.apply_text_style())
+        self.font_picker.bind("<FocusOut>", lambda _event: self.apply_text_style())
+        ttk.Button(form, text="Fill box", command=self.fill_text_box).grid(
+            row=0, column=1, sticky="ew", padx=(4, 7), pady=(0, 5)
+        )
+        row = ttk.Frame(form, style="Panel.TFrame")
+        row.grid(row=1, column=0, columnspan=2, sticky="ew", padx=(0, 7), pady=(0, 9))
+        size = SizeSpinbox(row, self.font_size, width=4)
+        size.pack(side="left")
+        size.bind("<<SizeStepped>>", lambda _event: self.apply_text_style())
+        size.bind("<Return>", lambda _event: self.apply_text_style())
+        size.bind("<FocusOut>", lambda _event: self.apply_text_style())
+        ttk.Label(row, text="dots", style="PanelMuted.TLabel").pack(side="left", padx=(4, 6))
+        for text, variable in (("B", self.font_bold), ("I", self.font_italic)):
+            ttk.Checkbutton(
+                row, text=text, width=2, variable=variable, style="Toolbutton", command=self.apply_text_style
+            ).pack(side="left", padx=(0, 2))
+        align = ttk.Combobox(
+            row, textvariable=self.text_align, values=("left", "center", "right"), state="readonly", width=6
+        )
+        align.pack(side="right")
+        align.bind("<<ComboboxSelected>>", lambda _event: self.apply_text_style())
+
+    def show_text_controls(self, obj):
+        if obj is None or obj.kind != "Text":
+            self.text_form.pack_forget()
+            return
+        if self.fonts is None:
+            self.fonts = list_fonts()
+            self.font_picker.set_fonts(self.fonts)
+        self.font_family.set(obj.font)
+        self.font_size.set(str(obj.font_size))
+        self.font_bold.set(obj.bold)
+        self.font_italic.set(obj.italic)
+        self.text_align.set(obj.align)
+        self.text_form.pack(fill="x", after=self.edit_button)
+
+    def apply_text_style(self, **overrides):
+        obj = self.object
+        if obj is None or obj.kind != "Text":
+            return
+        try:
+            changes = {
+                "font": self.font_picker.family() or obj.font,
+                "font_size": int(self.font_size.get().strip()),
+                "bold": self.font_bold.get(),
+                "italic": self.font_italic.get(),
+                "align": self.text_align.get() or obj.align,
+            }
+            changes.update(overrides)
+            element = replace(obj, **changes)
+        except ValueError:
+            self.font_size.set(str(obj.font_size))
+            self.show_error("Invalid font size", "Enter a whole number of dots from 1 to 300.")
+            return
+        if element != obj:
+            self.change_object(self.selected, element)
+        else:
+            self.show_text_controls(obj)
+
+    def step_text_size(self, direction):
+        obj = self.object
+        if obj is not None and obj.kind == "Text":
+            self.apply_text_style(font_size=step_font_size(obj.font_size, direction))
+
+    def toggle_text_style(self, field):
+        obj = self.object
+        if obj is not None and obj.kind == "Text":
+            self.change_object(self.selected, replace(obj, **{field: not getattr(obj, field)}))
+
+    def fill_text_box(self):
+        obj = self.object
+        if obj is None or obj.kind != "Text":
+            return
+        text, _missing = substitute(obj.value, self.label.fields(self.record))
+        try:
+            size = largest_text_size(obj, text)
+        except OSError as error:
+            self.show_error("Could not load font", error)
+            return
+        self.apply_text_style(font_size=size)
 
     def refresh(self, rebuild=True, notice=None):
         self.title.set(self.name + (" *" if self.label != self.saved else ""))
@@ -536,6 +638,7 @@ class App:
             for key, variable in self.geometry.items():
                 variable.set(f"{getattr(obj, key) / DOTS_PER_MM:.1f}")
             self.rotation.set(f"{obj.rotation}°")
+            self.show_text_controls(obj)
         else:
             self.object_form.pack_forget()
             self.no_object.pack(anchor="w")
@@ -813,10 +916,13 @@ class App:
             object_width,
             object_height,
             value or "",
+            **(self.text_style if kind == "Text" else {}),
         )
         if value is None and kind in ("Text", "QR code", "Barcode"):
             element = self.object_dialog(element, creating=True)
         if element is not None:
+            if kind == "Text":
+                self.text_style = {field: getattr(element, field) for field in TEXT_STYLE}
             self.insert(element)
 
     def insert(self, element):
@@ -838,6 +944,10 @@ class App:
             self.change_object(index, element)
 
     def change_object(self, index, element):
+        style = {field: getattr(element, field) for field in TEXT_STYLE}
+        previous = self.label.elements[index]
+        if element.kind == "Text" and style != {field: getattr(previous, field) for field in TEXT_STYLE}:
+            self.text_style = style
         items = list(self.label.elements)
         items[index] = element
         self.change(replace(self.label, elements=tuple(items)), index)
@@ -1020,10 +1130,14 @@ class App:
             "<Control-v>": self.paste,
             "<Control-d>": self.duplicate,
             "<Delete>": self.delete,
+            "<Control-bracketright>": lambda: self.step_text_size(1),
+            "<Control-bracketleft>": lambda: self.step_text_size(-1),
+            "<Control-b>": lambda: self.toggle_text_style("bold"),
+            "<Control-i>": lambda: self.toggle_text_style("italic"),
             "<Prior>": lambda: self.step_record(-1),
             "<Next>": lambda: self.step_record(1),
         }
-        editing = ("z", "Z", "y", "x", "c", "v", "d", "Delete")
+        editing = ("z", "Z", "y", "x", "c", "v", "d", "b", "i", "bracketleft", "bracketright", "Delete")
         for sequence, action in shortcuts.items():
 
             def command(event, action=action):
