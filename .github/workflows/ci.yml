@@ -49,3 +49,32 @@ jobs:
             sudo apt-get install -y --no-install-recommends xvfb xauth
           fi
           xvfb-run -a python -m unittest discover -s tests -v
+
+  installer:
+    name: Installer on ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: Ubuntu 24.04
+            runner: ubuntu-24.04
+          # Raspberry Pi OS is Debian on arm64.
+          - name: Debian 12 arm64
+            runner: ubuntu-24.04-arm
+            image: debian:bookworm
+          - name: Debian 13 arm64
+            runner: ubuntu-24.04-arm
+            image: debian:trixie
+    steps:
+      - uses: actions/checkout@v5
+      - name: Install, reinstall, and uninstall with ptouch-print
+        env:
+          IMAGE: ${{ matrix.image }}
+        run: |
+          if [ -n "$IMAGE" ]; then
+            docker run --rm -v "$PWD:/src:ro" "$IMAGE" sh /src/.github/scripts/installer-test.sh --container
+          else
+            sh .github/scripts/installer-test.sh
+          fi

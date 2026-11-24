@@ -149,3 +149,93 @@ class InstallationTests(TestCase):
         active = manage.Installation(self.root)
         self.assertTrue(all(link.is_file() for link in active.links))
         self.assertTrue(active.desktop.is_file())
+
+
+class SystemPackageTests(TestCase):
+    def setUp(self):
+        directory = TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        self.root = Path(directory.name)
+        self.commands = []
+        patcher = patch(
+            "scripts.manage.privileged", side_effect=lambda *args, **_: self.commands.append(args)
+        )
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        patcher = patch("scripts.manage.has_apt", return_value=True)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_installs_only_missing_app_packages(self):
+        apt = manage.Apt()
+        with patch.object(manage.Apt, "missing", return_value=["python3-tk"]):
+            manage.ensure_app_packages(apt)
+        self.assertEqual(("apt-get", "update"), self.commands[0])
+        self.assertEqual("python3-tk", self.commands[1][-1])
+        self.commands.clear()
+        with patch.object(manage.Apt, "missing", return_value=[]):
+            manage.ensure_app_packages(apt)
+        self.assertEqual([], self.commands)
+
+    def test_parses_installed_packages(self):
+        output = "python3-tk installed\nfontconfig not-installed\nfonts-dejavu-core:all installed\n"
+        with patch("scripts.manage.subprocess.run") as run:
+            run.return_value.stdout = output
+            missing = manage.Apt.missing(("python3-tk", "fontconfig", "fonts-dejavu-core", "python3-venv"))
+        self.assertEqual(["fontconfig", "python3-venv"], missing)
+
+    def test_keeps_an_existing_ptouch_print(self):
+        with patch("scripts.manage.find_ptouch_print", return_value="/usr/bin/ptouch-print"):
+            manage.ensure_ptouch_print(self.root, manage.Apt())
+        self.assertEqual([], self.commands)
+        self.assertFalse((self.root / manage.PTOUCH_PRINT_STATE).exists())
+        manage.remove_ptouch_print(self.root)
+        self.assertEqual([], self.commands)
+
+    def test_installs_and_removes_the_distribution_package(self):
+        apt = manage.Apt()
+        with (
+            patch("scripts.manage.find_ptouch_print", return_value=None),
+            patch.object(manage.Apt, "candidate", return_value=True),
+            patch.object(manage.Apt, "missing", return_value=["ptouch-print"]),
+        ):
+            manage.ensure_ptouch_print(self.root, apt)
+        self.assertEqual("ptouch-print", self.commands[-1][-1])
+        self.commands.clear()
+        manage.remove_ptouch_print(self.root)
+        self.assertEqual(("apt-get", "remove", "-y", "ptouch-print"), self.commands[0][2:])
+        self.assertFalse((self.root / manage.PTOUCH_PRINT_STATE).exists())
+
+    def test_builds_from_source_and_removes_only_recorded_system_files(self):
+        files = [
+            "/usr/local/bin/ptouch-print",
+            "/usr/local/share/man/man1/ptouch-print.1",
+            "/etc/udev/rules.d/20-usb-ptouch-permissions.rules",
+            "/home/user/.bashrc",
+            "/usr/local/../../etc/passwd",
+        ]
+        with (
+            patch("scripts.manage.find_ptouch_print", return_value=None),
+            patch.object(manage.Apt, "candidate", return_value=False),
+            patch.object(manage.Apt, "missing", return_value=[]),
+            patch("scripts.manage.build_ptouch_print", return_value=files),
+        ):
+            manage.ensure_ptouch_print(self.root, manage.Apt())
+        with patch("scripts.manage.reload_udev") as reload_udev:
+            manage.remove_ptouch_print(self.root)
+        self.assertEqual([("rm", "-f", "--", *files[:3])], self.commands)
+        reload_udev.assert_called_once()
+
+    def test_uninstall_removes_ptouch_print_unless_kept(self):
+        for keep, expected in ((False, 1), (True, 0)):
+            with self.subTest(keep=keep):
+                root = self.root / f"keep-{keep}" / "ptouch-ui"
+                root.parent.mkdir()
+                with patch("scripts.manage.build_slot", side_effect=build_fake_slot):
+                    manage.Installation(root, root.parent / "bin").install(root.parent, "first")
+                state = {"method": "source", "files": ["/usr/local/bin/ptouch-print"]}
+                (root / manage.PTOUCH_PRINT_STATE).write_text(manage.json.dumps(state))
+                self.commands.clear()
+                manage.Installation(root).uninstall(keep_ptouch_print=keep)
+                self.assertEqual(expected, len(self.commands))
+                self.assertFalse(root.exists())

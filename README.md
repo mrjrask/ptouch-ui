@@ -7,19 +7,31 @@ printer disconnected.
 
 ## Install, update, and uninstall
 
-You need Python 3.10 or newer, Tk, Fontconfig, and a Linux desktop session.
-For printing, install [ptouch-print][upstream] and confirm that it can see the
-printer using the same user account that will run the app.
-
-On Debian or Ubuntu, install the desktop dependencies, clone the repository,
-and run the installer as your desktop user.
+You need Python 3.10 or newer, Git, and a Linux desktop session. The installer
+is tested on Ubuntu 24.04 and on Debian 12 and 13 for arm64, the base of
+Raspberry Pi OS. Clone the repository and run the installer as your desktop
+user.
 
 ```sh
-sudo apt install git python3 python3-tk python3-venv fontconfig fonts-dejavu-core
 git clone https://github.com/mrjrask/ptouch-ui.git
 cd ptouch-ui
 ./install.sh
 ```
+
+On Debian, Ubuntu, and Raspberry Pi OS, the installer uses `sudo apt-get` to
+add any missing system packages: `python3-tk`, `python3-venv`, `fontconfig`,
+and `fonts-dejavu-core`. If [ptouch-print][upstream] is not already on `PATH`,
+the installer also installs it. It uses the distribution's `ptouch-print`
+package when one is available. Otherwise, it installs the build tools and
+libraries (`build-essential`, `cmake`, `gettext`, `libgd-dev`,
+`libusb-1.0-0-dev`, and `pkg-config`), builds the latest upstream source,
+and installs it in `/usr/local`. It also installs the upstream udev rules in
+`/etc/udev/rules.d` so your desktop user can reach the printer without root.
+Unplug and reconnect the printer after the first install.
+
+Run `./install.sh --skip-system-packages` to skip all `sudo` steps and manage
+the system packages and `ptouch-print` yourself. On other distributions,
+install Tk for Python, venv, Fontconfig, and `ptouch-print` first.
 
 Launch **P-Touch UI** from your desktop app menu or run
 `~/.local/bin/ptouch-ui`. The installer adds a per-user menu entry, stores its
@@ -37,8 +49,11 @@ environments stay available to already-running app windows, and the
 uninstaller removes those environments.
 
 Run `~/.local/bin/ptouch-ui-uninstall` to remove the installed app, its
-commands, and its desktop menu entry. Saved labels, exported PNGs, the source
-checkout, and the separate `ptouch-print` installation stay in place.
+commands, and its desktop menu entry. If the installer added `ptouch-print`,
+the uninstaller removes it as well, including its udev rules. Add
+`--keep-ptouch-print` to keep it. A `ptouch-print` that was installed before
+P-Touch UI stays in place. Saved labels, exported PNGs, the source checkout,
+the system packages, and the build tools stay in place.
 `./update.sh` and `./uninstall.sh` in the clone provide the same operations.
 
 The app finds `ptouch-print` on `PATH` by default. For a locally built
@@ -210,7 +225,9 @@ xvfb-run -a .venv/bin/python -m unittest discover -s tests -v
 
 GitHub Actions builds and installs the wheel on Python 3.10 and 3.12, checks
 formatting and lint, and runs document, raster, and print integration tests.
-It also checks installer cleanup and update failure recovery. The print tests
+It also checks installer cleanup and update failure recovery. A separate job
+runs the real installer and uninstaller, including the `ptouch-print` build,
+on Ubuntu 24.04 and on Debian 12 and 13 for arm64. The print tests
 use a simulated `ptouch-print` executable. The Python 3.12 job also runs the
 desktop smoke test under Xvfb.
 
