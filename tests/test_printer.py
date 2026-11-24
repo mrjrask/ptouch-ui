@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from ptouch_ui.printer import PrinterError, PrintOptions, print_images, printer_status
+from ptouch_ui.printer import PrinterError, PrintOptions, print_images, printer_problem, printer_status
 
 FAKE_PRINTER = """
 import json
@@ -183,3 +183,53 @@ class PrinterTests(TestCase):
         ):
             print_images([self.image], 12, PrintOptions(copies=2, precut=True))
         self.assertEqual(2, len(self.log.read_text().splitlines()))
+
+
+class DeviceLockTests(TestCase):
+    def test_print_job_waits_for_a_running_status_check(self):
+        from threading import Event, Thread
+
+        from ptouch_ui import printer
+
+        started = Event()
+        release = Event()
+        order = []
+
+        def slow_status(_serial):
+            started.set()
+            release.wait(5)
+            order.append("status")
+
+        def record_print(*_args):
+            order.append("print")
+
+        with (
+            patch("ptouch_ui.printer.read_status", slow_status),
+            patch("ptouch_ui.printer.send_images", record_print),
+        ):
+            check = Thread(target=printer.printer_status)
+            check.start()
+            started.wait(5)
+            job = Thread(target=printer.print_images, args=([], 12, PrintOptions()))
+            job.start()
+            job.join(0.2)
+            self.assertTrue(job.is_alive())
+            release.set()
+            check.join(5)
+            job.join(5)
+        self.assertEqual(["status", "print"], order)
+
+
+class PrinterProblemTests(TestCase):
+    def test_summarizes_detection_failures_for_the_toolbar(self):
+        self.assertEqual(
+            "ptouch-print not installed",
+            printer_problem(PrinterError("ptouch-print was not found. Install it or add it to PATH.")),
+        )
+        self.assertEqual(
+            "No printer connected",
+            printer_problem("No P-Touch printer found on USB (remember to put switch to position E)"),
+        )
+        self.assertEqual(
+            "Printer needs attention", printer_problem("Printer reports media or device error 0x0002.")
+        )

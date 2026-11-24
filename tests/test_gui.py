@@ -255,6 +255,60 @@ class DesktopTests(TestCase):
         app.undo()
         self.assertEqual((element,), app.label.elements)
 
+    def test_printer_detection_runs_automatically(self):
+        import tkinter as tk
+        from queue import SimpleQueue
+        from types import SimpleNamespace
+
+        from ptouch_ui.app import App
+        from ptouch_ui.printer import PrinterError, TapeStatus
+
+        root = tk.Tk()
+        self.addCleanup(root.destroy)
+        status = TapeStatus(12, 76, 180)
+        with patch("ptouch_ui.app.printer_status", return_value=status) as check:
+            app = App(root)
+            for _ in range(100):
+                root.update()
+                if app.loaded_tape:
+                    break
+                root.after(20)
+            check.assert_called()
+        self.assertEqual("●  12 mm tape loaded", app.printer_text.get())
+        self.assertEqual(12, app.label.tape)
+        app.undo()
+        self.assertEqual(24, app.label.tape)
+
+        def deliver(event, payload):
+            messages = SimpleQueue()
+            messages.put((event, payload))
+            app.poll_device(messages)
+
+        # The same cassette on a later check does not resize again, so Undo sticks.
+        deliver("done", status)
+        self.assertEqual(24, app.label.tape)
+
+        with patch("ptouch_ui.app.messagebox.showerror") as error:
+            deliver("error", str(PrinterError("No P-Touch printer found on USB")))
+        error.assert_not_called()
+        self.assertEqual("No printer connected", app.printer_text.get())
+        self.assertIsNone(app.loaded_tape)
+
+        # While a print dialog is open, checks wait instead of touching USB.
+        app.print_dialog = SimpleNamespace(running=False)
+        with patch("ptouch_ui.app.Thread") as thread:
+            app.detect()
+        thread.assert_not_called()
+        self.assertFalse(app.checking)
+        app.print_dialog = None
+
+        # A Tcl-created dialog such as a message box has no Tkinter widget; checks must still wait.
+        root.tk.eval("toplevel .tclonly; grab .tclonly")
+        with patch("ptouch_ui.app.Thread") as thread:
+            app.detect()
+        thread.assert_not_called()
+        root.tk.eval("grab release .tclonly; destroy .tclonly")
+
     def test_detecting_the_printer_resizes_the_canvas_to_the_loaded_tape(self):
         import tkinter as tk
         from queue import SimpleQueue
