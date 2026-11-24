@@ -133,6 +133,10 @@ class DesktopTests(TestCase):
         root = tk.Tk()
         self.addCleanup(root.destroy)
         app = App(root)
+        # Cancelling the add-text dialog loads the font list before the inspector shows.
+        with patch("ptouch_ui.app.ObjectDialog") as dialog:
+            dialog.return_value.show.return_value = None
+            app.add("Text")
         text = Element("Text", 10, 10, 300, 60, "SHELF", font_size=20, fit=False)
         app.reset(Label(elements=(text,)), "Font test")
         app.select(0)

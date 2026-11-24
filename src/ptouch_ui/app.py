@@ -519,13 +519,17 @@ class App:
         align.pack(side="right")
         align.bind("<<ComboboxSelected>>", lambda _event: self.apply_text_style())
 
+    def load_fonts(self):
+        """List the installed fonts once and share them with the inspector's picker."""
+        if self.fonts is None:
+            self.fonts = list_fonts()
+            self.font_picker.set_fonts(self.fonts)
+
     def show_text_controls(self, obj):
         if obj is None or obj.kind != "Text":
             self.text_form.pack_forget()
             return
-        if self.fonts is None:
-            self.fonts = list_fonts()
-            self.font_picker.set_fonts(self.fonts)
+        self.load_fonts()
         self.font_family.set(obj.font)
         self.font_size.set(str(obj.font_size))
         self.font_bold.set(obj.bold)
@@ -930,8 +934,8 @@ class App:
         self.change(replace(self.label, elements=(*self.label.elements, element)), index)
 
     def object_dialog(self, element, creating=False):
-        if element.kind == "Text" and self.fonts is None:
-            self.fonts = list_fonts()
+        if element.kind == "Text":
+            self.load_fonts()
         dialog = ObjectDialog(self.root, element, self.fonts or (), self.label.fields(self.record), creating)
         return dialog.show(dialog.focus)
 
