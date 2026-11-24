@@ -161,7 +161,8 @@ two-color indexed PNG. The exported raster is suitable for
 
 1. Power on the PT-2430PC, connect it over USB, and set its mode switch to **E**.
 2. Use **Detect printer** to read the loaded tape. If the design uses a
-   different width, the app offers to switch it to the loaded tape. The app
+   different width, the app resizes the canvas to the loaded tape
+   automatically; use **Undo** to restore the previous width. The app
    checks the tape and resolution again before starting a job.
 3. Choose **Print** to preview the artwork and pick copies, output mode, and
    data records. **Mirror artwork** flips the print horizontally.

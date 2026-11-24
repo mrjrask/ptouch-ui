@@ -813,8 +813,10 @@ class App:
     def change_tape(self, _event):
         self.set_tape(float(self.tape.get().split()[0]))
 
-    def set_tape(self, tape):
-        self.change(replace(self.label, tape=tape), self.selected, f"Design tape set to {tape:g} mm")
+    def set_tape(self, tape, notice=None):
+        self.change(
+            replace(self.label, tape=tape), self.selected, notice or f"Design tape set to {tape:g} mm"
+        )
 
     def fit_length(self):
         if not self.label.elements:
@@ -1092,18 +1094,11 @@ class App:
         if event == "done":
             self.printer_text.set(f"●  {payload.width:g} mm detected")
             self.printer_indicator.configure(style="StatusReady.TLabel")
-            if payload.width in TAPES and payload.width != self.label.tape:
-                if messagebox.askyesno(
-                    "Match loaded tape?",
-                    f"The printer has {payload.width:g} mm tape, but this design uses "
-                    f"{self.label.tape:g} mm tape. Switch the design to {payload.width:g} mm?",
-                    parent=self.root,
-                ):
-                    self.set_tape(payload.width)
-                else:
-                    self.feedback.set(
-                        f"Loaded tape is {payload.width:g} mm. Set the design tape to match before printing."
-                    )
+            if payload.width not in TAPES:
+                self.feedback.set(f"Loaded tape is {payload.width:g} mm, which this editor does not support.")
+            elif payload.width != self.label.tape:
+                # Resize the canvas to the loaded tape; Undo restores the previous width.
+                self.set_tape(payload.width, f"Canvas resized to the loaded {payload.width:g} mm tape")
         else:
             self.printer_text.set("Printer unavailable")
             self.show_error("Could not detect printer", payload)
