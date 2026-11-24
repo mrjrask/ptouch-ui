@@ -263,8 +263,6 @@ def render(label, index=0, today=None):
                 value, missing = substitute(element.value, fields)
                 if missing:
                     issues.append(f"{name} references missing fields: {', '.join(missing)}.")
-                if len(value) > 4000:
-                    raise ValueError("Resolved content exceeds 4,000 characters.")
                 if element.kind == "Text":
                     mask, issue = text_tile(size, element, value)
                     if issue:

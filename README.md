@@ -19,19 +19,15 @@ cd ptouch-ui
 ```
 
 On Debian, Ubuntu, and Raspberry Pi OS, the installer uses `sudo apt-get` to
-add any missing system packages: `python3-tk`, `python3-venv`, `fontconfig`,
-and `fonts-dejavu-core`. If [ptouch-print][upstream] is not already on `PATH`,
-the installer also installs it. It uses the distribution's `ptouch-print`
-package when one is available. Otherwise, it installs the build tools and
-libraries (`build-essential`, `cmake`, `gettext`, `libgd-dev`,
-`libusb-1.0-0-dev`, and `pkg-config`), builds the latest upstream source,
-and installs it in `/usr/local`. It also installs the upstream udev rules in
-`/etc/udev/rules.d` so your desktop user can reach the printer without root.
-Unplug and reconnect the printer after the first install.
+add any missing system prerequisites: `python3-tk`, `python3-venv`, `fontconfig`,
+and `fonts-dejavu-core`. Run `./install.sh --skip-system-packages` if these
+prerequisites are installed or managed separately. On other distributions,
+install the equivalents before running the installer.
 
-Run `./install.sh --skip-system-packages` to skip all `sudo` steps and manage
-the system packages and `ptouch-print` yourself. On other distributions,
-install Tk for Python, venv, Fontconfig, and `ptouch-print` first.
+For USB printing, install [ptouch-print][upstream] through your distribution
+where available, or follow its upstream build and udev instructions. Reconnect
+the printer after installing any udev rules. The editor can be installed and
+used to design labels and export PNGs before the USB backend is set up.
 
 Launch **P-Touch UI** from your desktop app menu or run
 `~/.local/bin/ptouch-ui`. The installer adds a per-user menu entry, stores its
@@ -49,11 +45,10 @@ environments stay available to already-running app windows, and the
 uninstaller removes those environments.
 
 Run `~/.local/bin/ptouch-ui-uninstall` to remove the installed app, its
-commands, and its desktop menu entry. If the installer added `ptouch-print`,
-the uninstaller removes it as well, including its udev rules. Add
-`--keep-ptouch-print` to keep it. A `ptouch-print` that was installed before
-P-Touch UI stays in place. Saved labels, exported PNGs, the source checkout,
-the system packages, and the build tools stay in place.
+commands, and its desktop menu entry. The uninstaller leaves shared system
+packages and any existing `ptouch-print` installation in place, including
+printer backends installed by older versions of P-Touch UI. Saved labels,
+exported PNGs, and the source checkout stay in place.
 `./update.sh` and `./uninstall.sh` in the clone provide the same operations.
 
 The app finds `ptouch-print` on `PATH` by default. For a locally built
@@ -150,7 +145,8 @@ Asset,Location
 
 **File → Save** creates a `.ptlabel` document. It embeds imported images and
 data records, so they travel with the document. The receiving machine needs the
-same fonts for matching text metrics. You can reopen and edit the label later, or open it at launch with
+same fonts for matching text metrics. Label documents and CSV imports are
+limited to 20 MB each. You can reopen and edit a label later, or open it at launch with
 `ptouch-ui path/to/label.ptlabel`. **File → Open recent** lists the last eight
 labels you opened or saved. The list is stored in
 `$XDG_CONFIG_HOME/ptouch-ui/recent.json` (normally `~/.config/ptouch-ui`).
@@ -248,12 +244,15 @@ the loaded tape and design stops the job. The app reports progress from
 xvfb-run -a .venv/bin/python -m unittest discover -s tests -v
 ```
 
-GitHub Actions builds and installs the wheel on Python 3.10 and 3.12, checks
-formatting and lint, and runs document, raster, and print integration tests.
-It also checks installer cleanup and update failure recovery. A separate job
-runs the real installer and uninstaller, including the `ptouch-print` build,
-on Ubuntu 24.04 and on Debian 12 and 13 for arm64. The print tests
-use a simulated `ptouch-print` executable. The Python 3.12 job also runs the
-desktop smoke test under Xvfb.
+GitHub Actions checks the source distribution and wheel metadata, installs
+the wheel on Python 3.10 and 3.12, and tests the installed launcher. The
+Python 3.12 job checks formatting and lint and runs the desktop tests under
+Xvfb. The installer is exercised on Ubuntu 24.04 and Debian 12 and 13 for
+arm64. Printer tests use a simulated `ptouch-print` executable.
+
+Build a source distribution and a wheel locally with `python -m build` after
+installing the `build` package. CI also makes both files available as workflow
+artifacts. The repository currently has no distribution license. Confirm
+redistribution terms with the project owner before redistributing the artifacts.
 
 [upstream]: https://git.familie-radermacher.ch/linux/ptouch-print.git

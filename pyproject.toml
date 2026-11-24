@@ -9,6 +9,16 @@ description = "A desktop label editor for the Brother PT-2430PC on Linux"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = ["Pillow>=10", "qrcode>=7.4", "python-barcode>=0.15"]
+classifiers = [
+    "Environment :: X11 Applications",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+]
+
+[project.urls]
+Repository = "https://github.com/mrjrask/ptouch-ui"
+Issues = "https://github.com/mrjrask/ptouch-ui/issues"
 
 [project.gui-scripts]
 ptouch-ui = "ptouch_ui.app:main"
