@@ -180,6 +180,7 @@ class App:
         self.length = tk.StringVar(root)
         self.zoom = tk.StringVar(root, value="Fit")
         self.grid = tk.BooleanVar(root)
+        self.auto_fit = tk.BooleanVar(root)
         self.tape_summary = tk.StringVar(root)
         self.record_title = tk.StringVar(root)
         self.feedback = tk.StringVar(root)
@@ -414,9 +415,13 @@ class App:
         length.grid(row=1, column=1, sticky="ew", padx=6)
         length.bind("<Return>", lambda _event: self.change_length())
         ttk.Button(setup, text="Set", command=self.change_length).grid(row=1, column=2, sticky="w")
-        ttk.Button(setup, text="Fit length to content", command=self.fit_length).grid(
-            row=2, column=0, columnspan=3, sticky="ew", pady=(6, 0)
-        )
+        ttk.Checkbutton(
+            setup,
+            text="Fit length to content",
+            variable=self.auto_fit,
+            style="Panel.TCheckbutton",
+            command=self.toggle_auto_fit,
+        ).grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
         ttk.Separator(panel).pack(fill="x", pady=12)
         ttk.Label(panel, text="Object", style="Section.TLabel").pack(anchor="w")
         self.object_panel = ttk.Frame(panel, style="Panel.TFrame")
@@ -664,6 +669,7 @@ class App:
         self.select(int(selected[0]) if selected else None)
 
     def change(self, label, selected, notice=None):
+        label = self.fitted(label)
         if label != self.label:
             self.remember(self.past)
             self.future.clear()
@@ -688,6 +694,8 @@ class App:
         self.restore(self.future, self.past)
 
     def reset(self, label, name, path=None):
+        if path is None:
+            label = self.fitted(label)
         self.label = self.saved = label
         self.name, self.path = name, path
         self.selected, self.record = None, 0
@@ -816,12 +824,18 @@ class App:
     def set_tape(self, tape):
         self.change(replace(self.label, tape=tape), self.selected, f"Design tape set to {tape:g} mm")
 
-    def fit_length(self):
-        if not self.label.elements:
-            self.feedback.set("Add an object before fitting the length.")
-            return
-        length = content_length(self.label)
-        self.change(replace(self.label, length=length), self.selected, f"Label length set to {length:g} mm")
+    def fitted(self, label):
+        """Return label trimmed to its content while Fit length to content is checked."""
+        if not self.auto_fit.get():
+            return label
+        length = content_length(label) if label.elements else MIN_LENGTH
+        return label if length == label.length else replace(label, length=length)
+
+    def toggle_auto_fit(self):
+        if self.auto_fit.get():
+            self.change(self.label, self.selected, "Label length fits its content")
+        else:
+            self.feedback.set("Label length is set manually")
 
     def layer_context_menu(self, event):
         row = self.layers.identify_row(event.y)
@@ -854,6 +868,8 @@ class App:
             self.length.set(f"{self.label.length:g}")
             self.show_error("Invalid length", f"Enter a length from {MIN_LENGTH} to {MAX_LENGTH} mm.")
         else:
+            # A typed length takes over from automatic fitting.
+            self.auto_fit.set(False)
             self.change(label, self.selected)
 
     def apply_geometry(self):

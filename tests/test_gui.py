@@ -63,12 +63,13 @@ class DesktopTests(TestCase):
 
     def test_snap_context_menu_fit_length_and_open_from_command_line(self):
         import tkinter as tk
+        from dataclasses import replace
         from pathlib import Path
         from tempfile import TemporaryDirectory
         from types import SimpleNamespace
 
         from ptouch_ui import app as app_module
-        from ptouch_ui.document import Element, Label, dots, save_label
+        from ptouch_ui.document import MIN_LENGTH, Element, Label, dots, save_label
 
         with TemporaryDirectory() as directory:
             path = Path(directory) / "Shelf.ptlabel"
@@ -119,11 +120,30 @@ class DesktopTests(TestCase):
         self.assertEqual("normal", states["Delete"])
         self.assertEqual("disabled", states["Paste"])
 
-        app.fit_length()
+        app.auto_fit.set(True)
+        app.toggle_auto_fit()
         self.assertLess(app.label.length, 120)
         self.assertGreaterEqual(dots(app.label.length), app.object.x * 2 + app.object.width)
         app.undo()
         self.assertEqual(120, app.label.length)
+        app.redo()
+
+        # While checked, the length follows the content as it changes.
+        fitted = app.label.length
+        app.change_object(0, replace(app.object, width=app.object.width + dots(20)))
+        self.assertGreater(app.label.length, fitted)
+        app.delete()
+        self.assertEqual(MIN_LENGTH, app.label.length)
+        with patch.object(app_module.messagebox, "askyesnocancel", return_value=False):
+            app.new_blank()
+        self.assertEqual(MIN_LENGTH, app.label.length)
+        self.assertEqual(app.saved, app.label)
+
+        # Typing a length turns automatic fitting off.
+        app.length.set("80")
+        app.change_length()
+        self.assertFalse(app.auto_fit.get())
+        self.assertEqual(80, app.label.length)
 
     def test_inspector_changes_fonts_and_sizes_with_undo_and_shortcuts(self):
         import tkinter as tk
