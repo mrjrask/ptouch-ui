@@ -11,8 +11,10 @@ from tempfile import TemporaryDirectory
 from .document import DPI, MAX_RECORDS
 from .raster import save_png
 
-# A short blank page, printed without the final feed and cut, ends where the first label begins.
-# The printer cuts at that page boundary once it reaches the cutter, trimming the blank leader.
+# A short blank page, printed without the final feed and cut, ends where the label begins.
+# With auto-cut enabled, the printer cuts at that page boundary once it reaches the cutter,
+# trimming the blank leader. Builds that never enable auto-cut for the PT-2430PC leave the
+# blank page attached, so the label only gains this short pad.
 PRECUT_DOTS = 16
 RELEASE_HINT = "Press Feed & Cut on the printer to release any tape left inside."
 
@@ -156,12 +158,16 @@ def print_images(images, tape, options, report=lambda _count: None):
             paths.append(str(path))
         queue = [path for path in paths for _ in range(options.copies)]
         verify_tape(printer_status(options.serial), tape, images[0].height)
-        if options.precut:
-            try:
-                command_output(run([*arguments, "--chain", "--pad", str(PRECUT_DOTS)], timeout=60))
-            except PrinterError as error:
-                raise PrinterError(f"The leader could not be fed. {RELEASE_HINT}\n{error}") from error
+
+        def precut():
+            if options.precut:
+                try:
+                    command_output(run([*arguments, "--chain", "--pad", str(PRECUT_DOTS)], timeout=60))
+                except PrinterError as error:
+                    raise PrinterError(f"The leader could not be fed. {RELEASE_HINT}\n{error}") from error
+
         if options.strip:
+            precut()
             jobs = []
             for index, path in enumerate(queue):
                 if index:
@@ -176,10 +182,10 @@ def print_images(images, tape, options, report=lambda _count: None):
             report(count)
         else:
             for number, path in enumerate(queue, start=1):
-                # With pre-cut, labels are chained so each is cut where the next one begins.
-                chain = ["--chain"] if options.precut and number < count else []
+                # Each label stays its own fed-and-cut job, so labels never run together uncut.
+                precut()
                 try:
-                    command_output(run([*arguments, *chain, "--image", path], timeout=90))
+                    command_output(run([*arguments, "--image", path], timeout=90))
                 except PrinterError as error:
                     hint = f" {RELEASE_HINT}" if options.precut else ""
                     raise PrinterError(f"Completed {number - 1} of {count} labels.{hint}\n{error}") from error

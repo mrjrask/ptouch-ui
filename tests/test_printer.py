@@ -150,14 +150,15 @@ class PrinterTests(TestCase):
         self.assertEqual([1], progress)
         self.assertEqual(2, len(self.log.read_text().splitlines()))
 
-    def test_precut_feeds_a_chained_blank_page_then_chains_all_but_the_last_label(self):
+    def test_precut_feeds_a_chained_blank_page_before_each_separately_cut_label(self):
         progress = []
         print_images([self.image, self.image], 12, PrintOptions(precut=True), progress.append)
         jobs = [json.loads(line) for line in self.log.read_text().splitlines()]
-        self.assertEqual(["--chain", "--pad", "16"], jobs[0])
-        self.assertEqual("--chain", jobs[1][0])
-        self.assertEqual("--image", jobs[2][0])
-        self.assertNotIn("--chain", jobs[2])
+        self.assertEqual(4, len(jobs))
+        for blank, label in (jobs[0:2], jobs[2:4]):
+            self.assertEqual(["--chain", "--pad", "16"], blank)
+            self.assertEqual("--image", label[0])
+            self.assertNotIn("--chain", label)
         self.assertEqual([1, 2], progress)
 
     def test_precut_strip_trims_the_leader_before_the_strip(self):
@@ -181,3 +182,4 @@ class PrinterTests(TestCase):
             self.assertRaisesRegex(PrinterError, "Completed 0 of 2 labels. Press Feed & Cut"),
         ):
             print_images([self.image], 12, PrintOptions(copies=2, precut=True))
+        self.assertEqual(2, len(self.log.read_text().splitlines()))

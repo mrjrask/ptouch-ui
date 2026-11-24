@@ -99,8 +99,9 @@ class PrintDialog(Dialog):
         ttk.Label(
             self.body,
             text=(
-                "The cutter sits about 22 mm ahead of the print head. Pre-cut feeds and cuts off that "
-                "blank tape so each label starts where the design does. The scrap piece comes out first."
+                "The cutter sits about 22 mm ahead of the print head. Pre-cut cuts off that blank "
+                "tape so each label starts where the design does, when ptouch-print enables "
+                "auto-cut for this printer. The scrap piece comes out first."
             ),
             style="PanelMuted.TLabel",
             wraplength=485,
