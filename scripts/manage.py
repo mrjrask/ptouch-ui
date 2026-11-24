@@ -152,7 +152,10 @@ def ensure_ptouch_print(root, apt):
         )
     state_path = root / PTOUCH_PRINT_STATE
     if apt.candidate("ptouch-print"):
-        apt.install(("ptouch-print",))
+        if not apt.install(("ptouch-print",)):
+            # The package was already installed, so it is not ours to remove later.
+            print("The ptouch-print package is already installed. Check PATH or PTOUCH_PRINT.")
+            return
         state = {"method": "apt", "package": "ptouch-print"}
     else:
         print("Building ptouch-print from source.", flush=True)

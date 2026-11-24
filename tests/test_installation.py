@@ -296,3 +296,12 @@ class SystemPackageTests(TestCase):
             ("rm", "-f", "--", "/usr/local/bin/ptouch-print", "/usr/local/share/man/man1/ptouch-print.1"),
             self.commands[-1],
         )
+
+    def test_does_not_claim_an_already_installed_distribution_package(self):
+        with (
+            patch("scripts.manage.find_ptouch_print", return_value=None),
+            patch.object(manage.Apt, "candidate", return_value=True),
+            patch.object(manage.Apt, "missing", return_value=[]),
+        ):
+            manage.ensure_ptouch_print(self.root, manage.Apt())
+        self.assertFalse((self.root / manage.PTOUCH_PRINT_STATE).exists())
