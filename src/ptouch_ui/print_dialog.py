@@ -54,6 +54,7 @@ class PrintDialog(Dialog):
         self.feed = tk.StringVar(self)
         self.serial = tk.StringVar(self)
         self.mirror = tk.BooleanVar(self)
+        self.precut = tk.BooleanVar(self, value=True)
         self.controls = []
         self.add_option(
             grid, 0, "Copies per label", ttk.Spinbox(grid, from_=1, to=99, textvariable=self.count, width=13)
@@ -90,6 +91,20 @@ class PrintDialog(Dialog):
         )
         mirror.grid(row=5, column=1, sticky="w", pady=5)
         self.controls.append(mirror)
+        precut = ttk.Checkbutton(
+            grid, text="Trim blank leader (pre-cut)", variable=self.precut, style="Panel.TCheckbutton"
+        )
+        precut.grid(row=6, column=1, sticky="w", pady=5)
+        self.controls.append(precut)
+        ttk.Label(
+            self.body,
+            text=(
+                "The cutter sits about 22 mm ahead of the print head. Pre-cut feeds and cuts off that "
+                "blank tape so each label starts where the design does. The scrap piece comes out first."
+            ),
+            style="PanelMuted.TLabel",
+            wraplength=485,
+        ).pack(fill="x", pady=(6, 0))
         ttk.Label(self.body, textvariable=self.error, style="Error.TLabel", wraplength=485).pack(
             fill="x",
             pady=(6, 0),
@@ -145,6 +160,7 @@ class PrintDialog(Dialog):
                 copies=int(self.count.get()),
                 strip=self.mode.get().startswith("Single"),
                 mirror=self.mirror.get(),
+                precut=self.precut.get(),
                 feed=int(self.feed.get()) if self.feed.get().strip() else None,
                 serial=self.serial.get().strip(),
             )

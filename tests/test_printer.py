@@ -40,8 +40,11 @@ if "--info" in args:
         if mode == "init-error":
             print("ptouch_init() failed")
 elif args == ["--help"]:
-    print("--image --cutmark --serial=<serial> --feed=<dots>")
-elif "--image" in args:
+    if os.environ.get("PRINTER_MODE") == "no-chain":
+        print("--image --cutmark --pad <n>")
+    else:
+        print("--image --cutmark --pad <n> --chain --serial=<serial> --feed=<dots>")
+elif "--image" in args or "--pad" in args:
     for idx, arg in enumerate(args):
         if arg == "--image":
             assert Path(args[idx + 1]).read_bytes()[24:26] == bytes([1, 3])
@@ -146,3 +149,35 @@ class PrinterTests(TestCase):
             print_images([self.image], 12, PrintOptions(copies=3), progress.append)
         self.assertEqual([1], progress)
         self.assertEqual(2, len(self.log.read_text().splitlines()))
+
+    def test_precut_feeds_a_chained_blank_page_then_chains_all_but_the_last_label(self):
+        progress = []
+        print_images([self.image, self.image], 12, PrintOptions(precut=True), progress.append)
+        jobs = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertEqual(["--chain", "--pad", "16"], jobs[0])
+        self.assertEqual("--chain", jobs[1][0])
+        self.assertEqual("--image", jobs[2][0])
+        self.assertNotIn("--chain", jobs[2])
+        self.assertEqual([1, 2], progress)
+
+    def test_precut_strip_trims_the_leader_before_the_strip(self):
+        print_images([self.image], 12, PrintOptions(copies=2, strip=True, precut=True))
+        jobs = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertEqual(["--chain", "--pad", "16"], jobs[0])
+        self.assertNotIn("--chain", jobs[1])
+        self.assertEqual(2, jobs[1].count("--image"))
+
+    def test_precut_requires_chain_support(self):
+        with (
+            patch.dict(os.environ, {"PRINTER_MODE": "no-chain"}),
+            self.assertRaisesRegex(PrinterError, "cannot trim the blank leader"),
+        ):
+            print_images([self.image], 12, PrintOptions(precut=True))
+        self.assertFalse(self.log.exists())
+
+    def test_failed_chained_label_tells_the_user_to_release_the_tape(self):
+        with (
+            patch.dict(os.environ, {"PRINTER_MODE": "fail-second"}),
+            self.assertRaisesRegex(PrinterError, "Completed 0 of 2 labels. Press Feed & Cut"),
+        ):
+            print_images([self.image], 12, PrintOptions(copies=2, precut=True))

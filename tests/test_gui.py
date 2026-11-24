@@ -57,6 +57,7 @@ class DesktopTests(TestCase):
         images, tape, options, _ = mock_print.call_args.args
         self.assertEqual(12, tape)
         self.assertEqual(2, options.copies)
+        self.assertTrue(options.precut)
         self.assertNotEqual(images[0].tobytes(), images[1].tobytes())
         self.assertTrue(all(image.size == app.label.size for image in images))
 
