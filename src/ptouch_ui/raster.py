@@ -11,12 +11,13 @@ from barcode.errors import BarcodeError
 from PIL import Image, ImageDraw, ImageFont, ImageOps
 from qrcode.exceptions import DataOverflowError
 
-from .document import DPI, substitute
+from .document import DPI, MAX_FONT_SIZE, substitute
 
 WHITE = 255
 BLACK = 0
 THRESHOLD = [BLACK] * 128 + [WHITE] * 128
 # Formats with a trailing check digit: python-barcode name and full length.
+TEXT_SPACING = 2
 CHECK_DIGIT_CODES = {"EAN-13": ("ean13", 13), "EAN-8": ("ean8", 8), "UPC-A": ("upca", 12)}
 
 
@@ -50,41 +51,70 @@ def font_path(family, bold, italic):
         return "DejaVuSans.ttf"
 
 
-def text_tile(size, element, text):
-    tile = Image.new("L", size, BLACK)
-    if not text.strip():
-        return tile, None
-    draw = ImageDraw.Draw(tile)
+def text_box(element):
+    """Return the unrotated size that a text object's characters are laid out in."""
+    if element.rotation in (90, 270):
+        return element.height, element.width
+    return element.width, element.height
+
+
+def _text_measure(size, element, text):
+    draw = ImageDraw.Draw(Image.new("L", (1, 1)))
     path = font_path(element.font, element.bold, element.italic)
-    spacing = 2
 
     def measure(pixels):
         font = ImageFont.truetype(path, pixels)
-        bounds = draw.multiline_textbbox((0, 0), text, font=font, spacing=spacing, align=element.align)
+        bounds = draw.multiline_textbbox((0, 0), text, font=font, spacing=TEXT_SPACING, align=element.align)
         return font, bounds
 
     def fits(bounds):
         x0, y0, x1, y1 = bounds
         return x1 - x0 <= size[0] and y1 - y0 <= size[1]
 
+    return measure, fits
+
+
+def _largest_fit(measure, fits, high):
+    """Binary search for the largest size up to ``high`` that fits, defaulting to size 1."""
+    low = 1
+    font, bounds = measure(low)
+    best = low
+    while low <= high:
+        middle = (low + high) // 2
+        candidate, candidate_bounds = measure(middle)
+        if fits(candidate_bounds):
+            best, font, bounds = middle, candidate, candidate_bounds
+            low = middle + 1
+        else:
+            high = middle - 1
+    return best, font, bounds
+
+
+def largest_text_size(element, text):
+    """Return the largest font size, in dots, at which ``text`` fills the object's box."""
+    if not text.strip():
+        return element.font_size
+    measure, fits = _text_measure(text_box(element), element, text)
+    return _largest_fit(measure, fits, MAX_FONT_SIZE)[0]
+
+
+def text_tile(size, element, text):
+    tile = Image.new("L", size, BLACK)
+    if not text.strip():
+        return tile, None
+    draw = ImageDraw.Draw(tile)
+    measure, fits = _text_measure(size, element, text)
     font, bounds = measure(element.font_size)
     if element.fit and not fits(bounds):
-        low, high = 1, element.font_size - 1
-        font, bounds = measure(low)
-        while low <= high:
-            middle = (low + high) // 2
-            candidate, candidate_bounds = measure(middle)
-            if fits(candidate_bounds):
-                font, bounds = candidate, candidate_bounds
-                low = middle + 1
-            else:
-                high = middle - 1
+        _, font, bounds = _largest_fit(measure, fits, element.font_size - 1)
 
     x0, y0, x1, y1 = bounds
     gap = size[0] - (x1 - x0)
     x = {"left": 0, "center": gap // 2, "right": gap}[element.align]
     y = (size[1] - (y1 - y0)) // 2
-    draw.multiline_text((x - x0, y - y0), text, font=font, fill=WHITE, spacing=spacing, align=element.align)
+    draw.multiline_text(
+        (x - x0, y - y0), text, font=font, fill=WHITE, spacing=TEXT_SPACING, align=element.align
+    )
     return tile.point(THRESHOLD), None if fits(bounds) else "Text does not fit its box."
 
 

@@ -124,6 +124,68 @@ class DesktopTests(TestCase):
         app.undo()
         self.assertEqual(120, app.label.length)
 
+    def test_inspector_changes_fonts_and_sizes_with_undo_and_shortcuts(self):
+        import tkinter as tk
+
+        from ptouch_ui.app import App
+        from ptouch_ui.document import Element, Label
+
+        root = tk.Tk()
+        self.addCleanup(root.destroy)
+        app = App(root)
+        # Cancelling the add-text dialog loads the font list before the inspector shows.
+        with patch("ptouch_ui.app.ObjectDialog") as dialog:
+            dialog.return_value.show.return_value = None
+            app.add("Text")
+        text = Element("Text", 10, 10, 300, 60, "SHELF", font_size=20, fit=False)
+        app.reset(Label(elements=(text,)), "Font test")
+        app.select(0)
+        root.update()
+        self.assertTrue(app.text_form.winfo_ismapped())
+        self.assertEqual("20", app.font_size.get())
+        self.assertIn("DejaVu Sans", app.font_picker.fonts)
+
+        app.step_text_size(1)
+        self.assertEqual(24, app.object.font_size)
+        self.assertEqual("24", app.font_size.get())
+        app.font_family.set("dejavu serif")
+        app.font_bold.set(True)
+        app.text_align.set("center")
+        app.apply_text_style()
+        self.assertEqual(
+            ("DejaVu Serif", True, "center"), (app.object.font, app.object.bold, app.object.align)
+        )
+        app.fill_text_box()
+        filled = app.object.font_size
+        self.assertGreater(filled, 24)
+        self.assertEqual([], app.canvas.issues)
+        app.undo()
+        self.assertEqual(24, app.object.font_size)
+
+        app.font_size.set("abc")
+        with patch("ptouch_ui.app.messagebox.showerror") as error:
+            app.apply_text_style()
+        error.assert_called_once()
+        self.assertEqual("24", app.font_size.get())
+
+        canvas = app.canvas.canvas
+        canvas.focus_force()
+        root.update()
+        canvas.event_generate("<Control-bracketright>", when="now")
+        canvas.event_generate("<Control-i>", when="now")
+        root.update()
+        self.assertEqual((28, True), (app.object.font_size, app.object.italic))
+
+        app.add("Text", "NEW")
+        self.assertEqual(
+            ("DejaVu Serif", 28, True, True),
+            (app.object.font, app.object.font_size, app.object.bold, app.object.italic),
+        )
+
+        app.add("Rectangle")
+        root.update()
+        self.assertFalse(app.text_form.winfo_ismapped())
+
     def test_deleting_during_a_drag_cancels_the_pending_edit(self):
         import tkinter as tk
         from types import SimpleNamespace
