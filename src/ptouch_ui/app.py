@@ -833,7 +833,13 @@ class App:
         length = content_length(label) if label.elements else MIN_LENGTH
         return label if length == label.length else replace(label, length=length)
 
+    @property
+    def bounds(self):
+        """The area objects may occupy: up to the maximum length while the label fits its content."""
+        return replace(self.label, length=MAX_LENGTH) if self.auto_fit.get() else self.label
+
     def toggle_auto_fit(self):
+        self.canvas.max_length = MAX_LENGTH if self.auto_fit.get() else None
         if self.auto_fit.get():
             self.change(self.label, self.selected, "Label length fits its content")
         else:
@@ -872,6 +878,7 @@ class App:
         else:
             # A typed length takes over from automatic fitting.
             self.auto_fit.set(False)
+            self.canvas.max_length = None
             self.change(label, self.selected)
 
     def apply_geometry(self):
@@ -886,12 +893,12 @@ class App:
             ):
                 values["width"], values["height"] = obj.height, obj.width
             element = replace(obj, **values, rotation=rotation)
-            width, height = self.label.size
+            width, height = self.bounds.size
             if element.width > width or element.height > height:
                 raise ValueError(
                     "Resize the object to fit the printable area before applying this rotation or size."
                 )
-            element = fit_position(element, self.label)
+            element = fit_position(element, self.bounds)
         except (ValueError, OverflowError) as error:
             self.show_error("Invalid object geometry", error)
         else:
@@ -905,7 +912,7 @@ class App:
             self.change_object(self.selected, item)
 
     def add(self, kind, value=None):
-        width, height = self.label.size
+        width, height = self.bounds.size
         object_width = min(width, 258 if kind in ("Text", "Line") else 369 if kind == "Barcode" else 105)
         object_height = min(height, 42 if kind == "Text" else 2 if kind == "Line" else 100)
         if kind in ("QR code", "Ellipse"):
@@ -931,9 +938,17 @@ class App:
                 max(1, round(ratio * image_width)),
                 max(1, round(ratio * image_height)),
             )
+        if self.auto_fit.get():
+            # Place the object after the existing content; the label then grows to hold it.
+            elements = self.label.elements
+            margin = max(0, min(item.x for item in elements)) if elements else dots(2)
+            x = max((item.x + item.width for item in elements), default=0) + margin
+            x = max(0, min(x, width - object_width))
+        else:
+            x = (width - object_width) // 2
         element = Element(
             kind,
-            (width - object_width) // 2,
+            x,
             (height - object_height) // 2,
             object_width,
             object_height,
@@ -994,7 +1009,7 @@ class App:
             item = self.object
             x = max(-dots(MAX_LENGTH), min(dots(MAX_LENGTH), item.x + dx))
             y = max(-128, min(128, item.y + dy))
-            self.change_object(self.selected, fit_position(replace(item, x=x, y=y), self.label))
+            self.change_object(self.selected, fit_position(replace(item, x=x, y=y), self.bounds))
 
     def copy(self):
         if self.object is not None:
@@ -1015,7 +1030,8 @@ class App:
 
     def offset(self, item):
         return fit_position(
-            replace(item, x=min(dots(MAX_LENGTH), item.x + dots(1)), y=min(128, item.y + dots(1))), self.label
+            replace(item, x=min(dots(MAX_LENGTH), item.x + dots(1)), y=min(128, item.y + dots(1))),
+            self.bounds,
         )
 
     def import_csv(self):

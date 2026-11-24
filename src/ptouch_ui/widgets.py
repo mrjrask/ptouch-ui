@@ -255,6 +255,8 @@ class LabelCanvas(ttk.Frame):
         self.origin = (0, 0)
         self.drag = None
         self.grid_enabled = False
+        # While set, objects may be dragged past the label end up to this many mm.
+        self.max_length = None
         self.raster_key = None
         self.raster = None
         self.issues = []
@@ -427,7 +429,7 @@ class LabelCanvas(ttk.Frame):
         if not (dx or dy):
             item = original
         elif not direction:
-            width, height = self.label.size
+            width, height = self.limits()
             item = replace(
                 original,
                 x=max(0, min(width - original.width, self.move_edge(original.x, dx))),
@@ -435,7 +437,7 @@ class LabelCanvas(ttk.Frame):
             )
         else:
             left, top = max(0, original.x), max(0, original.y)
-            max_width, max_height = self.label.size
+            max_width, max_height = self.limits()
             right, bottom = (
                 min(max_width, original.x + original.width),
                 min(max_height, original.y + original.height),
@@ -453,6 +455,12 @@ class LabelCanvas(ttk.Frame):
             item = replace(original, x=left, y=top, width=right - left, height=bottom - top)
         self.drag = index, (origin_x, origin_y), original, direction, item
         self.redraw()
+
+    def limits(self):
+        width, height = self.label.size
+        if self.max_length is not None:
+            width = max(width, dots(self.max_length))
+        return width, height
 
     def pointer_up(self, _event):
         if self.drag is None:

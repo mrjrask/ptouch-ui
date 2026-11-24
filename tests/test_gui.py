@@ -139,6 +139,29 @@ class DesktopTests(TestCase):
         self.assertEqual(MIN_LENGTH, app.label.length)
         self.assertEqual(app.saved, app.label)
 
+        # Objects added, resized, and dragged on an empty fitted label grow it.
+        app.add("Rectangle")
+        self.assertEqual(105, app.object.width)
+        self.assertEqual(app.object.x * 2 + app.object.width, dots(app.label.length))
+        second_length = app.label.length
+        app.add("Rectangle")
+        self.assertGreater(app.object.x, app.label.elements[0].x + app.label.elements[0].width)
+        self.assertGreater(app.label.length, second_length)
+        app.geometry["width"].set("40")
+        app.apply_geometry()
+        self.assertEqual(dots(40), app.object.width)
+        self.assertGreaterEqual(dots(app.label.length), app.object.x + app.object.width)
+        grown = app.label.length
+        root.update()
+        app.canvas.redraw()
+        left, top, right, bottom = app.canvas.box(app.object)
+        corner = SimpleNamespace(x=right, y=bottom)
+        stretched = SimpleNamespace(x=right + app.canvas.scale * dots(10), y=bottom)
+        app.canvas.pointer_down(corner)
+        app.canvas.pointer_move(stretched)
+        app.canvas.pointer_up(stretched)
+        self.assertGreater(app.label.length, grown)
+
         # Typing a length turns automatic fitting off.
         app.length.set("80")
         app.change_length()
