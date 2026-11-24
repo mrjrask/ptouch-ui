@@ -11,6 +11,17 @@ from tempfile import TemporaryDirectory
 from .document import DPI, MAX_RECORDS
 from .raster import save_png
 
+# A short blank page, printed without the final feed and cut, ends where the label begins.
+# With auto-cut enabled, the printer cuts at that page boundary once it reaches the cutter,
+# trimming the blank leader. Builds that never enable auto-cut for the PT-2430PC leave the
+# blank page attached, so the label only gains this short pad.
+PRECUT_DOTS = 16
+RELEASE_HINT = "Press Feed & Cut on the printer to release any tape left inside."
+
+
+def supports(available, option):
+    return re.search(rf"{option}(?:[\s=,]|$)", available) is not None
+
 
 class PrinterError(RuntimeError):
     pass
@@ -28,6 +39,7 @@ class PrintOptions:
     copies: int = 1
     strip: bool = False
     mirror: bool = False
+    precut: bool = False
     feed: int | None = None
     serial: str = ""
 
@@ -121,15 +133,20 @@ def print_images(images, tape, options, report=lambda _count: None):
     if any(image.size != images[0].size for image in images):
         raise PrinterError("All labels in a print job must have the same size.")
     arguments = ["--serial", options.serial] if options.serial else []
-    if options.feed is not None or options.serial:
+    if options.feed is not None or options.serial or options.precut:
         available = details(run(["--help"], timeout=8))
         if options.feed is not None:
-            if not re.search(r"--feed(?:[\s=,]|$)", available):
+            if not supports(available, "--feed"):
                 raise PrinterError("This ptouch-print version does not support feed adjustment.")
             arguments.extend(("--feed", str(options.feed)))
-        if options.serial and not re.search(r"--serial(?:[\s=,]|$)", available):
+        if options.serial and not supports(available, "--serial"):
             raise PrinterError(
                 "This ptouch-print version does not support printer selection by serial number."
+            )
+        if options.precut and not (supports(available, "--chain") and supports(available, "--pad")):
+            raise PrinterError(
+                "This ptouch-print version cannot trim the blank leader. "
+                "Update ptouch-print or turn off Trim blank leader."
             )
 
     # Save and validate all input before starting any USB print operation.
@@ -141,7 +158,16 @@ def print_images(images, tape, options, report=lambda _count: None):
             paths.append(str(path))
         queue = [path for path in paths for _ in range(options.copies)]
         verify_tape(printer_status(options.serial), tape, images[0].height)
+
+        def precut():
+            if options.precut:
+                try:
+                    command_output(run([*arguments, "--chain", "--pad", str(PRECUT_DOTS)], timeout=60))
+                except PrinterError as error:
+                    raise PrinterError(f"The leader could not be fed. {RELEASE_HINT}\n{error}") from error
+
         if options.strip:
+            precut()
             jobs = []
             for index, path in enumerate(queue):
                 if index:
@@ -156,8 +182,11 @@ def print_images(images, tape, options, report=lambda _count: None):
             report(count)
         else:
             for number, path in enumerate(queue, start=1):
+                # Each label stays its own fed-and-cut job, so labels never run together uncut.
+                precut()
                 try:
                     command_output(run([*arguments, "--image", path], timeout=90))
                 except PrinterError as error:
-                    raise PrinterError(f"Completed {number - 1} of {count} labels.\n{error}") from error
+                    hint = f" {RELEASE_HINT}" if options.precut else ""
+                    raise PrinterError(f"Completed {number - 1} of {count} labels.{hint}\n{error}") from error
                 report(number)

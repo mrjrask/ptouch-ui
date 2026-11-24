@@ -167,9 +167,19 @@ two-color indexed PNG. The exported raster is suitable for
    data records. **Mirror artwork** flips the print horizontally.
 4. Choose **Separate labels** to submit one printer job per label. Choose
    **Single strip with cut marks** to print consecutive labels with dashed
-   trim marks between them. The printer can add lead and trailing feed beyond
-   the design length. A job can contain up to 250 labels total.
-5. Leave **Feed dots** blank for the printer default. Set it to 0–1000 to adjust
+   trim marks between them. A job can contain up to 250 labels total.
+5. **Trim blank leader (pre-cut)** is on by default. The cutter sits about
+   22 mm ahead of the print head, so without it each label starts with that
+   much blank tape. With it, the app prints a short blank page that is not fed
+   or cut (`--chain`) before each label. If the installed `ptouch-print`
+   enables auto-cut for the PT-2430PC, the printer cuts that blank tape off as
+   a scrap piece when the label starts, so the label begins where the design
+   does. Older builds that leave auto-cut off print the blank page attached to
+   the label, adding about 2 mm to the leader; update `ptouch-print` to trim it.
+   Each label is still fed and cut as its own job. This needs a `ptouch-print`
+   with `--chain` and `--pad`. If a pre-cut job stops partway through, press
+   **Feed & Cut** on the printer to release the tape.
+6. Leave **Feed dots** blank for the printer default. Set it to 0–1000 to adjust
    feed on a version of `ptouch-print` that supports `--feed`. Use **USB
    serial** to select a printer if your version supports `--serial`.
 
