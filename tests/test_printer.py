@@ -1,5 +1,6 @@
 import json
 import os
+import subprocess
 import sys
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -20,6 +21,9 @@ args = sys.argv[1:]
 log = Path(os.environ["PRINTER_LOG"])
 if "--info" in args:
     mode = os.environ.get("PRINTER_MODE", "")
+    if mode == "not-found":
+        print("No P-Touch printer found on USB (remember to put switch to position E)", file=sys.stderr)
+        sys.exit(1)
     if mode in ("no-dpi", "no-dpi-other-model"):
         model = "PT-2430PC" if mode == "no-dpi" else "PT-9500PC"
         print(f"{model} found on USB bus 1, device 5", file=sys.stderr)
@@ -105,6 +109,35 @@ class PrinterTests(TestCase):
             self.assertRaisesRegex(PrinterError, r"ptouch_init\(\) failed"),
         ):
             printer_status()
+
+    def test_usb_diagnostic_distinguishes_passthrough_and_backend_failures(self):
+        with TemporaryDirectory() as directory, patch.dict(os.environ, {"PRINTER_MODE": "not-found"}):
+            devices = Path(directory) / "devices"
+            with patch("ptouch_ui.printer.USB_DEVICES", devices):
+                with self.assertRaisesRegex(PrinterError, "lsusb -d 04f9:202d"):
+                    printer_status()
+                device = devices / "1-1"
+                device.mkdir(parents=True)
+                (devices / "1-1:1.0").mkdir()
+                (device / "idVendor").write_text("04f9\n")
+                (device / "idProduct").write_text("202c\n")
+                with self.assertRaisesRegex(PrinterError, "attach the physical printer"):
+                    printer_status()
+                (device / "idProduct").write_text("202d\n")
+                with self.assertRaisesRegex(PrinterError, "Linux sees the PT-2430PC .*udev rules"):
+                    printer_status()
+
+    def test_check_printer_works_without_a_display(self):
+        arguments = [sys.executable, "-m", "ptouch_ui", "--check-printer"]
+        env = {**os.environ, "DISPLAY": ""}
+        success = subprocess.run(arguments, env=env, capture_output=True, text=True, check=False)
+        self.assertEqual(0, success.returncode, success.stderr)
+        self.assertIn("12 mm tape, 76 printable dots, 180 dpi", success.stdout)
+        env["PRINTER_MODE"] = "not-found"
+        failure = subprocess.run(arguments, env=env, capture_output=True, text=True, check=False)
+        self.assertEqual(1, failure.returncode)
+        self.assertIn("No P-Touch printer found on USB", failure.stderr)
+        self.assertFalse(self.log.exists())
 
     def test_usb_write_failure_is_not_reported_as_a_printed_label(self):
         progress = []
@@ -237,7 +270,7 @@ class PrinterProblemTests(TestCase):
             printer_problem(PrinterError("ptouch-print was not found. Install it or add it to PATH.")),
         )
         self.assertEqual(
-            "No printer connected",
+            "No printer detected",
             printer_problem("No P-Touch printer found on USB (remember to put switch to position E)"),
         )
         self.assertEqual(

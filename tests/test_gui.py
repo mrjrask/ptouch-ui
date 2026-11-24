@@ -291,7 +291,7 @@ class DesktopTests(TestCase):
         with patch("ptouch_ui.app.messagebox.showerror") as error:
             deliver("error", str(PrinterError("No P-Touch printer found on USB")))
         error.assert_not_called()
-        self.assertEqual("No printer connected", app.printer_text.get())
+        self.assertEqual("No printer detected", app.printer_text.get())
         self.assertIsNone(app.loaded_tape)
 
         # While a print dialog is open, checks wait instead of touching USB.
