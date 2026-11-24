@@ -814,7 +814,9 @@ class App:
         self.set_tape(float(self.tape.get().split()[0]))
 
     def set_tape(self, tape, notice=None):
-        self.change(replace(self.label, tape=tape), self.selected, notice or f"Design tape set to {tape:g} mm")
+        self.change(
+            replace(self.label, tape=tape), self.selected, notice or f"Design tape set to {tape:g} mm"
+        )
 
     def fit_length(self):
         if not self.label.elements:
