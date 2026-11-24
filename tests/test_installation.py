@@ -272,3 +272,27 @@ class SystemPackageTests(TestCase):
             [str(rules / "30-new.rules"), "/usr/local/bin/ptouch-print"], [str(c[-1]) for c in self.commands]
         )
         self.assertEqual("user rule", existing.read_text())
+
+    def test_failed_source_install_removes_the_files_it_copied(self):
+        def fake_install(arguments, env, **_):
+            for target in ("/usr/local/bin/ptouch-print", "/usr/local/share/man/man1/ptouch-print.1"):
+                path = Path(env["DESTDIR"]) / target.lstrip("/")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("staged", encoding="utf-8")
+
+        def fail_on_man_page(*arguments, **_):
+            self.commands.append(arguments)
+            if arguments[0] == "install" and str(arguments[-1]).endswith(".1"):
+                raise CalledProcessError(1, "install")
+
+        with (
+            patch("scripts.manage.privileged", side_effect=fail_on_man_page),
+            patch("scripts.manage.run"),
+            patch("scripts.manage.subprocess.run", side_effect=fake_install),
+            self.assertRaises(CalledProcessError),
+        ):
+            manage.build_ptouch_print()
+        self.assertEqual(
+            ("rm", "-f", "--", "/usr/local/bin/ptouch-print", "/usr/local/share/man/man1/ptouch-print.1"),
+            self.commands[-1],
+        )

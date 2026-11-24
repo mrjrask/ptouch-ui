@@ -187,18 +187,24 @@ def build_ptouch_print():
         for rule in (source / "udev").glob("*.rules"):
             staged.setdefault(UDEV_RULES / rule.name, rule)
         files = []
-        for target, path in sorted(staged.items()):
-            if target.parent == UDEV_RULES and os.path.lexists(target):
-                print(f"Kept the existing udev rule {target}.")
-                continue
-            if not removable_file(str(target)):
-                print(f"Skipped {target}, which is outside {PTOUCH_PRINT_PREFIX} and {UDEV_RULES}.")
-                continue
-            mode = "0755" if os.access(path, os.X_OK) else "0644"
-            privileged("install", "-D", "-m", mode, path, target)
-            files.append(str(target))
-        if not any(Path(value).name == "ptouch-print" for value in files):
-            raise InstallError("The ptouch-print build did not produce an executable.")
+        try:
+            for target, path in sorted(staged.items()):
+                if target.parent == UDEV_RULES and os.path.lexists(target):
+                    print(f"Kept the existing udev rule {target}.")
+                    continue
+                if not removable_file(str(target)):
+                    print(f"Skipped {target}, which is outside {PTOUCH_PRINT_PREFIX} and {UDEV_RULES}.")
+                    continue
+                mode = "0755" if os.access(path, os.X_OK) else "0644"
+                files.append(str(target))
+                privileged("install", "-D", "-m", mode, path, target)
+            if not any(Path(value).name == "ptouch-print" for value in files):
+                raise InstallError("The ptouch-print build did not produce an executable.")
+        except BaseException:
+            # Nothing is recorded for a failed build, so take back what was copied.
+            if files:
+                privileged("rm", "-f", "--", *files, check=False)
+            raise
         reload_udev()
     return files
 
