@@ -63,12 +63,13 @@ class DesktopTests(TestCase):
 
     def test_snap_context_menu_fit_length_and_open_from_command_line(self):
         import tkinter as tk
+        from dataclasses import replace
         from pathlib import Path
         from tempfile import TemporaryDirectory
         from types import SimpleNamespace
 
         from ptouch_ui import app as app_module
-        from ptouch_ui.document import Element, Label, dots, save_label
+        from ptouch_ui.document import MIN_LENGTH, Element, Label, dots, save_label
 
         with TemporaryDirectory() as directory:
             path = Path(directory) / "Shelf.ptlabel"
@@ -119,11 +120,53 @@ class DesktopTests(TestCase):
         self.assertEqual("normal", states["Delete"])
         self.assertEqual("disabled", states["Paste"])
 
-        app.fit_length()
+        app.auto_fit.set(True)
+        app.toggle_auto_fit()
         self.assertLess(app.label.length, 120)
         self.assertGreaterEqual(dots(app.label.length), app.object.x * 2 + app.object.width)
         app.undo()
         self.assertEqual(120, app.label.length)
+        app.redo()
+
+        # While checked, the length follows the content as it changes.
+        fitted = app.label.length
+        app.change_object(0, replace(app.object, width=app.object.width + dots(20)))
+        self.assertGreater(app.label.length, fitted)
+        app.delete()
+        self.assertEqual(MIN_LENGTH, app.label.length)
+        with patch.object(app_module.messagebox, "askyesnocancel", return_value=False):
+            app.new_blank()
+        self.assertEqual(MIN_LENGTH, app.label.length)
+        self.assertEqual(app.saved, app.label)
+
+        # Objects added, resized, and dragged on an empty fitted label grow it.
+        app.add("Rectangle")
+        self.assertEqual(105, app.object.width)
+        self.assertEqual(app.object.x * 2 + app.object.width, dots(app.label.length))
+        second_length = app.label.length
+        app.add("Rectangle")
+        self.assertGreater(app.object.x, app.label.elements[0].x + app.label.elements[0].width)
+        self.assertGreater(app.label.length, second_length)
+        app.geometry["width"].set("40")
+        app.apply_geometry()
+        self.assertEqual(dots(40), app.object.width)
+        self.assertGreaterEqual(dots(app.label.length), app.object.x + app.object.width)
+        grown = app.label.length
+        root.update()
+        app.canvas.redraw()
+        left, top, right, bottom = app.canvas.box(app.object)
+        corner = SimpleNamespace(x=right, y=bottom)
+        stretched = SimpleNamespace(x=right + app.canvas.scale * dots(10), y=bottom)
+        app.canvas.pointer_down(corner)
+        app.canvas.pointer_move(stretched)
+        app.canvas.pointer_up(stretched)
+        self.assertGreater(app.label.length, grown)
+
+        # Typing a length turns automatic fitting off.
+        app.length.set("80")
+        app.change_length()
+        self.assertFalse(app.auto_fit.get())
+        self.assertEqual(80, app.label.length)
 
     def test_inspector_changes_fonts_and_sizes_with_undo_and_shortcuts(self):
         import tkinter as tk
