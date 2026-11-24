@@ -232,6 +232,31 @@ class DesktopTests(TestCase):
         app.undo()
         self.assertEqual((element,), app.label.elements)
 
+    def test_detecting_the_printer_resizes_the_canvas_to_the_loaded_tape(self):
+        import tkinter as tk
+        from queue import SimpleQueue
+
+        from ptouch_ui.app import App
+        from ptouch_ui.printer import TapeStatus
+
+        root = tk.Tk()
+        self.addCleanup(root.destroy)
+        app = App(root)
+        app.new_blank()
+        root.update()
+        self.assertEqual(12, app.label.tape)
+        app.checking = True
+        messages = SimpleQueue()
+        messages.put(("done", TapeStatus(24, 128, 180)))
+        app.poll_device(messages)
+        root.update()
+        self.assertEqual(24, app.label.tape)
+        self.assertEqual(128, app.label.size[1])
+        self.assertEqual("24 mm", app.tape.get())
+        self.assertIn("24 mm", app.feedback.get())
+        app.undo()
+        self.assertEqual(12, app.label.tape)
+
     def test_unexpected_worker_failure_still_notifies_the_dialog(self):
         from queue import SimpleQueue
         from unittest.mock import Mock
