@@ -80,9 +80,11 @@ python3 -m venv .venv
    editable **Equipment tag** example. Templates also include **Cable ID**,
    **Storage label**, and **Numbered inventory**.
 2. Set the tape width and design length under **Label setup**. Length can be
-   5–300 mm. Enter the length and press **Set** or **Enter**, or choose
-   **Fit length to content** to trim the label to its objects with equal
-   margins at both ends.
+   5–300 mm. Enter the length and press **Set** or **Enter**, or check
+   **Fit length to content** to keep the label trimmed to its objects with
+   equal margins at both ends. While it is checked, an empty label uses the
+   minimum length and the length adjusts automatically as objects are added,
+   moved, resized, or removed. Typing a length turns it off.
 3. Add objects from the toolbar. Select on the label or in **Layers**, drag to
    move, and drag a corner handle to resize. Double-click an object to edit its
    content or style. Use the inspector for millimeter coordinates, size,
