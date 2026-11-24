@@ -105,6 +105,16 @@ def printer_status(serial=""):
     return status
 
 
+def printer_problem(error):
+    """Summarize a printer_status failure for the toolbar indicator."""
+    message = str(error).lower()
+    if "ptouch-print was not found" in message:
+        return "ptouch-print not installed"
+    if "no p-touch printer" in message:
+        return "No printer connected"
+    return "Printer needs attention"
+
+
 def verify_tape(status, tape, pixels):
     if status.width != tape or status.dots != pixels:
         raise PrinterError(

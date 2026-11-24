@@ -8,7 +8,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from ptouch_ui.printer import PrinterError, PrintOptions, print_images, printer_status
+from ptouch_ui.printer import PrinterError, PrintOptions, print_images, printer_problem, printer_status
 
 FAKE_PRINTER = """
 import json
@@ -183,3 +183,18 @@ class PrinterTests(TestCase):
         ):
             print_images([self.image], 12, PrintOptions(copies=2, precut=True))
         self.assertEqual(2, len(self.log.read_text().splitlines()))
+
+
+class PrinterProblemTests(TestCase):
+    def test_summarizes_detection_failures_for_the_toolbar(self):
+        self.assertEqual(
+            "ptouch-print not installed",
+            printer_problem(PrinterError("ptouch-print was not found. Install it or add it to PATH.")),
+        )
+        self.assertEqual(
+            "No printer connected",
+            printer_problem("No P-Touch printer found on USB (remember to put switch to position E)"),
+        )
+        self.assertEqual(
+            "Printer needs attention", printer_problem("Printer reports media or device error 0x0002.")
+        )

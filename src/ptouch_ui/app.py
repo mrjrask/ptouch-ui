@@ -30,7 +30,7 @@ from .document import (
     template,
 )
 from .print_dialog import PrintDialog, background
-from .printer import printer_status
+from .printer import printer_problem, printer_status
 from .raster import import_image, largest_text_size, list_fonts, render, save_png
 from .recent import forget_recent, load_recent, remember_recent
 from .widgets import (
@@ -50,6 +50,8 @@ from .widgets import (
 )
 
 PROJECT_FILES = [("P-Touch label", "*.ptlabel"), ("All files", "*")]
+# Milliseconds between automatic printer checks.
+DETECT_INTERVAL = 4000
 ZOOMS = ("Fit", "25%", "50%", "100%", "150%", "200%", "300%", "400%")
 TEXT_STYLE = ("font", "font_size", "bold", "italic")
 LAYER_PREFIX = {"Text": "T", "QR code": "QR", "Barcode": "BAR"}
@@ -183,10 +185,14 @@ class App:
         self.tape_summary = tk.StringVar(root)
         self.record_title = tk.StringVar(root)
         self.feedback = tk.StringVar(root)
-        self.printer_text = tk.StringVar(root, value="Printer unchecked")
+        self.printer_text = tk.StringVar(root, value="Looking for printer…")
+        # Tape width from the last successful check, so the mismatch prompt appears once per change.
+        self.loaded_tape = None
+        self.printer_error = ""
         self.build()
         self.refresh()
         self.bind_keys()
+        root.after_idle(self.detect)
 
     def build(self):
         root = self.root
@@ -247,10 +253,9 @@ class App:
             top, text="Print...", style="Primary.TButton", command=self.print_label
         )
         self.print_button.pack(side="right", padx=(10, 0))
-        self.detect_button = ttk.Button(top, text="Detect printer", command=self.detect)
-        self.detect_button.pack(side="right", padx=(8, 0))
         self.printer_indicator = ttk.Label(top, textvariable=self.printer_text, style="PanelMuted.TLabel")
         self.printer_indicator.pack(side="right")
+        self.printer_indicator.bind("<Button-1>", lambda _event: self.show_printer_error())
         ttk.Separator(root).pack(fill="x")
 
         tools = ttk.Frame(root, style="Panel.TFrame", padding=(15, 8))
@@ -1068,13 +1073,14 @@ class App:
         self.refresh(rebuild=False)
 
     def detect(self):
+        """Check the printer in the background, then schedule the next check."""
         if self.checking:
             return
+        # Leave the USB device to a print job, and keep prompts out of other open dialogs.
+        if self.print_dialog is not None or self.root.grab_current() is not None:
+            self.root.after(DETECT_INTERVAL, self.detect)
+            return
         self.checking = True
-        self.detect_button.state(["disabled"])
-        self.print_button.state(["disabled"])
-        self.printer_text.set("Checking USB…")
-        self.printer_indicator.configure(style="PanelMuted.TLabel")
         messages = SimpleQueue()
         Thread(target=background, args=(printer_status, messages), daemon=True).start()
         self.root.after(70, self.poll_device, messages)
@@ -1086,31 +1092,40 @@ class App:
             self.root.after(70, self.poll_device, messages)
             return
         self.checking = False
-        self.print_dialog = None
-        self.detect_button.state(["!disabled"])
-        self.print_button.state(["!disabled"])
         if event == "done":
-            self.printer_text.set(f"●  {payload.width:g} mm detected")
-            self.printer_indicator.configure(style="StatusReady.TLabel")
-            if payload.width in TAPES and payload.width != self.label.tape:
-                if messagebox.askyesno(
-                    "Match loaded tape?",
-                    f"The printer has {payload.width:g} mm tape, but this design uses "
-                    f"{self.label.tape:g} mm tape. Switch the design to {payload.width:g} mm?",
-                    parent=self.root,
-                ):
-                    self.set_tape(payload.width)
-                else:
-                    self.feedback.set(
-                        f"Loaded tape is {payload.width:g} mm. Set the design tape to match before printing."
-                    )
+            self.printer_error = ""
+            self.printer_text.set(f"●  {payload.width:g} mm tape loaded")
+            self.printer_indicator.configure(style="StatusReady.TLabel", cursor="")
+            # Offer the switch only when a printer appears or its cassette changes, and only
+            # when no other dialog is open; otherwise a later check offers it.
+            if payload.width != self.loaded_tape and self.root.grab_current() is None:
+                self.loaded_tape = payload.width
+                self.offer_tape(payload.width)
         else:
-            self.printer_text.set("Printer unavailable")
-            self.show_error("Could not detect printer", payload)
+            self.loaded_tape = None
+            self.printer_error = payload
+            self.printer_text.set(printer_problem(payload))
+            self.printer_indicator.configure(style="PanelMuted.TLabel", cursor="hand2")
+        self.root.after(DETECT_INTERVAL, self.detect)
+
+    def offer_tape(self, width):
+        if width not in TAPES or width == self.label.tape:
+            return
+        if messagebox.askyesno(
+            "Match loaded tape?",
+            f"The printer has {width:g} mm tape, but this design uses "
+            f"{self.label.tape:g} mm tape. Switch the design to {width:g} mm?",
+            parent=self.root,
+        ):
+            self.set_tape(width)
+        else:
+            self.feedback.set(f"Loaded tape is {width:g} mm. Set the design tape to match before printing.")
+
+    def show_printer_error(self):
+        if self.printer_error:
+            self.show_error("Printer not ready", self.printer_error)
 
     def print_label(self):
-        if self.checking:
-            return
         self.print_dialog = PrintDialog(self.root, self.label, self.record, self.name)
         try:
             count = self.print_dialog.show()
