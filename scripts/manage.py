@@ -170,18 +170,35 @@ def build_ptouch_print():
         run("git", "clone", "--quiet", PTOUCH_PRINT_REPOSITORY, source)
         run("cmake", "-S", source, "-B", build, "-DCMAKE_BUILD_TYPE=Release")
         run("cmake", "--build", build, "--parallel")
-        privileged("cmake", "--install", build, "--prefix", PTOUCH_PRINT_PREFIX)
-        manifest = build / "install_manifest.txt"
-        files = manifest.read_text(encoding="utf-8").split() if manifest.is_file() else []
-        if not files:
-            files = [str(PTOUCH_PRINT_PREFIX / "bin" / "ptouch-print")]
-        for rule in sorted((source / "udev").glob("*.rules")):
-            target = UDEV_RULES / rule.name
-            if os.path.lexists(target):
+        # Stage the installation first so existing system files, such as a udev rule
+        # the user already has, are never overwritten or recorded as ours.
+        stage = Path(directory) / "stage"
+        subprocess.run(
+            ["cmake", "--install", build, "--prefix", PTOUCH_PRINT_PREFIX],
+            env={**os.environ, "DESTDIR": str(stage)},
+            text=True,
+            check=True,
+        )
+        staged = {
+            Path("/") / path.relative_to(stage): path
+            for path in stage.rglob("*")
+            if path.is_file() and not path.is_symlink()
+        }
+        for rule in (source / "udev").glob("*.rules"):
+            staged.setdefault(UDEV_RULES / rule.name, rule)
+        files = []
+        for target, path in sorted(staged.items()):
+            if target.parent == UDEV_RULES and os.path.lexists(target):
                 print(f"Kept the existing udev rule {target}.")
                 continue
-            privileged("install", "-D", "-m", "0644", rule, target)
+            if not removable_file(str(target)):
+                print(f"Skipped {target}, which is outside {PTOUCH_PRINT_PREFIX} and {UDEV_RULES}.")
+                continue
+            mode = "0755" if os.access(path, os.X_OK) else "0644"
+            privileged("install", "-D", "-m", mode, path, target)
             files.append(str(target))
+        if not any(Path(value).name == "ptouch-print" for value in files):
+            raise InstallError("The ptouch-print build did not produce an executable.")
         reload_udev()
     return files
 

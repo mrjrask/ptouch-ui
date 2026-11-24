@@ -239,3 +239,36 @@ class SystemPackageTests(TestCase):
                 manage.Installation(root).uninstall(keep_ptouch_print=keep)
                 self.assertEqual(expected, len(self.commands))
                 self.assertFalse(root.exists())
+
+    def test_source_build_keeps_existing_udev_rules_and_stays_in_system_locations(self):
+        rules = self.root / "rules.d"
+        rules.mkdir()
+        existing = rules / "20-usb-ptouch-permissions.rules"
+        existing.write_text("user rule", encoding="utf-8")
+
+        def fake_run(*arguments, **_):
+            if arguments[:2] == ("git", "clone"):
+                udev = Path(arguments[-1]) / "udev"
+                udev.mkdir(parents=True)
+                (udev / existing.name).write_text("upstream rule", encoding="utf-8")
+                (udev / "30-new.rules").write_text("upstream rule", encoding="utf-8")
+
+        def fake_install(arguments, env, **_):
+            stage = Path(env["DESTDIR"])
+            for target in ("/usr/local/bin/ptouch-print", f"{existing}", "/usr/share/other"):
+                path = stage / target.lstrip("/")
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("staged", encoding="utf-8")
+
+        with (
+            patch("scripts.manage.UDEV_RULES", rules),
+            patch("scripts.manage.run", side_effect=fake_run),
+            patch("scripts.manage.subprocess.run", side_effect=fake_install),
+            patch("scripts.manage.reload_udev"),
+        ):
+            files = manage.build_ptouch_print()
+        self.assertEqual([str(rules / "30-new.rules"), "/usr/local/bin/ptouch-print"], files)
+        self.assertEqual(
+            [str(rules / "30-new.rules"), "/usr/local/bin/ptouch-print"], [str(c[-1]) for c in self.commands]
+        )
+        self.assertEqual("user rule", existing.read_text())
