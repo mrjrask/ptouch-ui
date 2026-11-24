@@ -15,6 +15,7 @@ DPI = 180
 DOTS_PER_MM = DPI / 25.4
 TAPES = {3.5: 24, 6: 32, 9: 52, 12: 76, 18: 120, 24: 128}
 MIN_LENGTH, MAX_LENGTH = 5, 300
+MAX_FONT_SIZE = 300
 MAX_RECORDS = 250
 MAX_FILE_BYTES = 20_000_000
 KINDS = ("Text", "Image", "Rectangle", "Ellipse", "Line", "QR code", "Barcode")
@@ -58,7 +59,7 @@ class Element:
             ("y", -128, 128),
             ("width", 1, dots(MAX_LENGTH)),
             ("height", 1, 128),
-            ("font_size", 1, 300),
+            ("font_size", 1, MAX_FONT_SIZE),
             ("stroke", 1, 128),
             ("threshold", 1, 255),
             ("radius", 0, 64),

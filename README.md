@@ -89,10 +89,16 @@ python3 -m venv .venv
    90° rotations, and alignment to the label edges or center. Right-click an
    object on the label or in **Layers** for edit, clipboard, and ordering
    commands.
-4. Use **Raise** and **Lower** to change stacking order. The **Edit** menu has
+4. Select a text object to change its font, size, bold, italic, and alignment
+   directly in the inspector, without opening the editor. Type part of a font
+   name to narrow the font list. The size arrows step through common sizes,
+   and you can type any size from 1 to 300 dots. **Fill box** sets the largest
+   size at which the text fits its box. New text objects start with the font
+   settings you used last.
+5. Use **Raise** and **Lower** to change stacking order. The **Edit** menu has
    undo, redo, cut, copy, paste, duplicate, and delete. Object copy and paste
    work within the app, including when switching documents.
-5. Use **Fit** or set a zoom level from 25% to 400%. The rulers are marked in
+6. Use **Fit** or set a zoom level from 25% to 400%. The rulers are marked in
    millimeters. Turn on **Grid** for placement guides. While the grid is on,
    dragging and resizing snap to it. The canvas scrolls at high zoom levels,
    and Shift+mouse wheel scrolls horizontally.
@@ -101,7 +107,7 @@ python3 -m venv .venv
 
 | Object | Options |
 | --- | --- |
-| Text | Multiple lines, installed Linux fonts, bold, italic, left/center/right alignment, size in printer dots, optional shrink-to-fit, and white text on a black box |
+| Text | Multiple lines, installed Linux fonts, bold, italic, left/center/right alignment, size in printer dots (2.5 dots per point), optional shrink-to-fit, and white text on a black box |
 | Image | Import PNG, JPEG, GIF, BMP, TIFF, or WebP. Adjust the black-and-white threshold or use dithering. Transparency becomes white, and the image keeps its aspect ratio. |
 | Rectangle and ellipse | Outlines with adjustable stroke weight or solid fills. Rectangles can have rounded corners (0–64 dots). |
 | Line | Horizontal rule with adjustable length and thickness via its width and height. Rotate it 90° for a vertical rule. |
@@ -219,6 +225,8 @@ the loaded tape and design stops the job. The app reports progress from
 | Ctrl+Z / Ctrl+Shift+Z or Ctrl+Y | Undo / Redo |
 | Ctrl+X / Ctrl+C / Ctrl+V | Cut / Copy / Paste selected object |
 | Ctrl+D / Delete | Duplicate / Delete selected object |
+| Ctrl+] / Ctrl+[ | Increase / decrease the selected text's font size |
+| Ctrl+B / Ctrl+I | Toggle bold / italic on the selected text |
 | Page Up / Page Down | Previous / next data record |
 | Arrow keys with canvas focused | Move selected object by one printer dot |
 | Shift+arrow keys with canvas focused | Move selected object by approximately one millimeter |

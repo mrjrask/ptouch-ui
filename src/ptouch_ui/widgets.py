@@ -7,7 +7,7 @@ from tkinter import font, ttk
 
 from PIL import Image, ImageTk
 
-from .document import BARCODES, DOTS_PER_MM, dots
+from .document import BARCODES, DOTS_PER_MM, DPI, MAX_FONT_SIZE, dots
 from .raster import render
 
 INK = "#1b2937"
@@ -18,6 +18,67 @@ SURFACE = "#f2f5fa"
 LINE = "#dbe3ef"
 WORKSPACE = "#e8eef6"
 RULER = "#637995"
+
+
+# Common sizes in printer dots. At 180 dpi, 2.5 dots equal one typographic point.
+FONT_SIZES = (12, 14, 16, 18, 20, 24, 28, 32, 36, 40, 48, 56, 64, 72, 80, 96, 112, 128)
+
+
+def points(size):
+    """Describe a size in printer dots in typographic points."""
+    return f"≈ {size * 72 / DPI:g} pt"
+
+
+def step_font_size(size, direction):
+    """Return the next preset size above (direction 1) or below (direction -1) ``size``."""
+    if direction > 0:
+        return next((preset for preset in FONT_SIZES if preset > size), min(MAX_FONT_SIZE, size + 16))
+    return next((preset for preset in reversed(FONT_SIZES) if preset < size), max(1, size - 1))
+
+
+class FontPicker(ttk.Combobox):
+    """An editable font family list that narrows to matching families as you type."""
+
+    def __init__(self, parent, fonts, **options):
+        super().__init__(parent, values=tuple(fonts), **options)
+        self.fonts = tuple(fonts)
+        self.bind("<KeyRelease>", self.narrow, add="+")
+        self.bind("<<ComboboxSelected>>", lambda _event: self.configure(values=self.fonts), add="+")
+
+    def set_fonts(self, fonts):
+        self.fonts = tuple(fonts)
+        self.configure(values=self.fonts)
+
+    def narrow(self, event):
+        if event.keysym in ("Return", "KP_Enter", "Escape", "Tab", "Up", "Down"):
+            return
+        typed = self.get().strip().casefold()
+        matches = [family for family in self.fonts if typed in family.casefold()] if typed else self.fonts
+        self.configure(values=tuple(matches) or self.fonts)
+
+    def family(self):
+        """Return the typed family, matched to an installed name regardless of case."""
+        typed = self.get().strip()
+        return next((family for family in self.fonts if family.casefold() == typed.casefold()), typed)
+
+
+class SizeSpinbox(ttk.Spinbox):
+    """A font size field whose arrows step through common sizes; any whole size can be typed."""
+
+    def __init__(self, parent, variable, **options):
+        super().__init__(parent, textvariable=variable, from_=1, to=MAX_FONT_SIZE, **options)
+        self.variable = variable
+        self.bind("<<Increment>>", lambda _event: self.step(1))
+        self.bind("<<Decrement>>", lambda _event: self.step(-1))
+
+    def step(self, direction):
+        try:
+            current = int(self.variable.get())
+        except (tk.TclError, ValueError):
+            current = 28
+        self.variable.set(step_font_size(current, direction))
+        self.event_generate("<<SizeStepped>>")
+        return "break"
 
 
 class Dialog(tk.Toplevel):
@@ -96,8 +157,24 @@ class ObjectDialog(Dialog):
         form = ttk.Frame(self.body, style="Panel.TFrame")
         form.pack(fill="x")
         if element.kind == "Text":
-            self.choice(form, "Font family", "font", fonts, editable=True)
-            self.entry(form, "Font size (dots)", "font_size")
+            family = tk.StringVar(self, value=element.font)
+            self.picker = FontPicker(form, fonts, textvariable=family, width=22)
+            self.control(form, "Font family", "font", family, self.picker)
+            size = tk.IntVar(self, value=element.font_size)
+            sizes = ttk.Frame(form, style="Panel.TFrame")
+            SizeSpinbox(sizes, size, width=6).pack(side="left")
+            hint = ttk.Label(sizes, style="PanelMuted.TLabel")
+            hint.pack(side="left", padx=(8, 0))
+
+            def describe(*_args):
+                try:
+                    hint.configure(text=points(size.get()))
+                except tk.TclError:
+                    hint.configure(text="")
+
+            size.trace_add("write", describe)
+            describe()
+            self.control(form, "Font size (dots)", "font_size", size, sizes)
             self.choice(form, "Alignment", "align", ("left", "center", "right"))
             self.check(form, "Bold", "bold")
             self.check(form, "Italic", "italic")
@@ -150,6 +227,8 @@ class ObjectDialog(Dialog):
     def apply(self):
         try:
             changes = {key: variable.get() for key, variable in self.variables.items()}
+            if self.element.kind == "Text":
+                changes["font"] = self.picker.family()
             if self.element.kind in ("Text", "QR code", "Barcode"):
                 changes["value"] = self.content.get("1.0", "end-1c")
             self.result = replace(self.element, **changes)
