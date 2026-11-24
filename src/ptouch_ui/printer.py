@@ -20,6 +20,8 @@ PRECUT_DOTS = 16
 RELEASE_HINT = "Press Feed & Cut on the printer to release any tape left inside."
 # Serializes USB access, so a background status check never overlaps a print job.
 DEVICE_LOCK = RLock()
+USB_DEVICES = Path("/sys/bus/usb/devices")
+PT2430PC_USB_ID = "04f9:202d"
 
 
 def supports(available, option):
@@ -82,13 +84,47 @@ def printer_status(serial=""):
         return read_status(serial)
 
 
+def pt2430pc_visible():
+    """Return whether Linux enumerated the PT-2430PC, or None if sysfs is unavailable."""
+    try:
+        for device in USB_DEVICES.iterdir():
+            try:
+                vendor = (device / "idVendor").read_text(encoding="ascii").strip()
+                product = (device / "idProduct").read_text(encoding="ascii").strip()
+            except FileNotFoundError:
+                # Interface entries have no device IDs. Devices can also unplug during the scan.
+                continue
+            if f"{vendor}:{product}".lower() == PT2430PC_USB_ID:
+                return True
+    except (OSError, UnicodeError):
+        return None
+    return False
+
+
+def usb_troubleshooting():
+    visible = pt2430pc_visible()
+    if visible is True:
+        return (
+            f"Linux sees the PT-2430PC ({PT2430PC_USB_ID}) on USB. "
+            "Check the ptouch-print udev rules and your user's USB permissions. "
+            "If it is already accessible, reconnect it and check that the mode switch is set to E."
+        )
+    if visible is False:
+        return (
+            f"Linux does not see the PT-2430PC ({PT2430PC_USB_ID}) on USB. "
+            "Check power, the cable, and E mode. In Parallels, attach the physical printer "
+            "to this VM from the Devices menu."
+        )
+    return f"Check USB visibility with lsusb -d {PT2430PC_USB_ID}, E mode, and device permissions."
+
+
 def read_status(serial):
     arguments = ["--serial", serial] if serial else []
-    result = run([*arguments, "--info"], timeout=12)
     try:
+        result = run([*arguments, "--info"], timeout=12)
         output = command_output(result)
     except PrinterError as error:
-        raise PrinterError(f"{error}\nCheck USB, the printer's E mode, and device permissions.") from error
+        raise PrinterError(f"{error}\n\n{usb_troubleshooting()}") from error
     error = re.search(r"^error\s*=\s*(?:0x)?([0-9a-f]+)\b", output, re.IGNORECASE | re.MULTILINE)
     if error and int(error[1], 16):
         raise PrinterError(f"Printer reports media or device error 0x{int(error[1], 16):04x}.")
@@ -96,7 +132,10 @@ def read_status(serial):
     pixels = re.search(r"maximum printing width for this tape is\s+(\d+)\s*px", output, re.IGNORECASE)
     width = re.search(r"media width\s*=\s*(\d+(?:\.\d+)?)\s*mm", output, re.IGNORECASE)
     if not (pixels and width):
-        raise PrinterError(f"Could not read the loaded tape from ptouch-print.\n{output}")
+        detail = f"\n{output}" if output else ""
+        raise PrinterError(
+            f"Could not read the loaded tape from ptouch-print.{detail}\n\n{usb_troubleshooting()}"
+        )
     measured = float(width[1])
     # Older releases omit the resolution but still report the detected USB model.
     if dpi:
@@ -119,7 +158,7 @@ def printer_problem(error):
     if "ptouch-print was not found" in message:
         return "ptouch-print not installed"
     if "no p-touch printer" in message:
-        return "No printer connected"
+        return "No printer detected"
     return "Printer needs attention"
 
 

@@ -32,7 +32,7 @@ from .document import (
     template,
 )
 from .print_dialog import PrintDialog, background
-from .printer import printer_problem, printer_status
+from .printer import PrinterError, printer_problem, printer_status
 from .raster import import_image, largest_text_size, list_fonts, render, save_png
 from .recent import forget_recent, load_recent, remember_recent, store_recent
 from .widgets import (
@@ -1229,12 +1229,25 @@ class App:
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="ptouch-ui", description="Design and print labels on Linux.")
     parser.add_argument("label", nargs="?", type=Path, help="open an editable .ptlabel document")
+    parser.add_argument(
+        "--check-printer", action="store_true", help="check the USB printer without opening the editor"
+    )
     try:
         release = version("ptouch-ui")
     except PackageNotFoundError:
         release = "development checkout"
     parser.add_argument("--version", action="version", version=f"%(prog)s {release}")
     args = parser.parse_args(argv)
+    if args.check_printer:
+        if args.label is not None:
+            parser.error("--check-printer does not take a label path")
+        try:
+            status = printer_status()
+        except PrinterError as error:
+            print(error, file=sys.stderr)
+            return 1
+        print(f"Printer ready. {status.width:g} mm tape, {status.dots} printable dots, {status.dpi} dpi.")
+        return 0
     try:
         root = tk.Tk()
     except tk.TclError as error:

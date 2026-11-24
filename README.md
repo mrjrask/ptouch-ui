@@ -218,6 +218,34 @@ the loaded tape and design stops the job. The app reports progress from
   files need to be recreated or brought in as exported images. USB hardware
   printing requires a connected printer and has to be verified on-device.
 
+### USB passthrough in Parallels
+
+1. With the Ubuntu or Debian VM running and the PT-2430PC powered on in **E**
+   mode, select the physical Brother USB device in Parallels’ **Devices** menu
+   under **USB** or **USB & Bluetooth**. A shared macOS printer queue does not
+   provide the direct USB connection that `ptouch-print` needs. For reconnects
+   after sleep or VM suspension, assign the printer to that VM in
+   **Parallels Desktop → Preferences → Devices → Permanent Assignments**.
+   [Direct USB connections][parallels-usb] · [Reconnecting after suspend][parallels-resume]
+2. Close the editor so its automatic status checks do not compete for USB.
+   In the guest, as your regular desktop user, run the following commands.
+
+   ```sh
+   lsusb -d 04f9:202d
+   ptouch-ui --check-printer
+   ```
+
+   `lsusb` comes from the `usbutils` package on Ubuntu and Debian. If it shows
+   no matching device, reattach the printer from the Parallels Devices menu
+   and check the cable, power and mode switch. Run the check again after the
+   guest has had a few seconds to enumerate the printer.
+3. If Linux sees the printer and the app still cannot read it, run
+   `ptouch-print --info` in the guest. If it reports an access error, install
+   the upstream udev rules in the guest and reconnect the USB device. If
+   `--info` succeeds and the app check fails, check whether `PTOUCH_PRINT`
+   points to a different binary. The app’s toolbar status also shows the
+   backend error and USB guidance when clicked. [ptouch-print upstream][upstream]
+
 ## Keyboard shortcuts
 
 | Shortcut | Action |
@@ -256,3 +284,5 @@ artifacts. The repository currently has no distribution license. Confirm
 redistribution terms with the project owner before redistributing the artifacts.
 
 [upstream]: https://git.familie-radermacher.ch/linux/ptouch-print.git
+[parallels-usb]: https://kb.parallels.com/en/122993
+[parallels-resume]: https://kb.parallels.com/en/125203
