@@ -163,10 +163,11 @@ two-color indexed PNG. The exported raster is suitable for
 2. The app detects the printer automatically. It checks USB every few seconds
    and shows the loaded tape in the toolbar, so plugging in the printer or
    swapping a cassette needs no extra step. If the design uses a different
-   width, the app offers once to switch it to the loaded tape. When the printer
-   is missing or reports a problem, click the toolbar status for details.
-   Checks pause while the print dialog is open, and the app checks the tape and
-   resolution again before starting a job.
+   width, the app resizes the canvas to the loaded tape once per printer or
+   cassette change; use **Undo** to restore the previous width. When the
+   printer is missing or reports a problem, click the toolbar status for
+   details. Checks pause while the print dialog is open, and the app checks
+   the tape and resolution again before starting a job.
 3. Choose **Print** to preview the artwork and pick copies, output mode, and
    data records. **Mirror artwork** flips the print horizontally.
 4. Choose **Separate labels** to submit one printer job per label. Choose

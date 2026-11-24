@@ -818,8 +818,10 @@ class App:
     def change_tape(self, _event):
         self.set_tape(float(self.tape.get().split()[0]))
 
-    def set_tape(self, tape):
-        self.change(replace(self.label, tape=tape), self.selected, f"Design tape set to {tape:g} mm")
+    def set_tape(self, tape, notice=None):
+        self.change(
+            replace(self.label, tape=tape), self.selected, notice or f"Design tape set to {tape:g} mm"
+        )
 
     def fit_length(self):
         if not self.label.elements:
@@ -1096,11 +1098,11 @@ class App:
             self.printer_error = ""
             self.printer_text.set(f"●  {payload.width:g} mm tape loaded")
             self.printer_indicator.configure(style="StatusReady.TLabel", cursor="")
-            # Offer the switch only when a printer appears or its cassette changes, and only
-            # when no other dialog is open; otherwise a later check offers it.
+            # Match the canvas only when a printer appears or its cassette changes, so Undo sticks,
+            # and only when no dialog is open; otherwise a later check does it.
             if payload.width != self.loaded_tape and not self.dialog_open():
                 self.loaded_tape = payload.width
-                self.offer_tape(payload.width)
+                self.match_tape(payload.width)
         else:
             self.loaded_tape = None
             self.printer_error = payload
@@ -1112,18 +1114,12 @@ class App:
         # Ask Tcl directly: grab_current() raises KeyError for Tcl-created dialogs like message boxes.
         return bool(self.root.tk.call("grab", "current"))
 
-    def offer_tape(self, width):
-        if width not in TAPES or width == self.label.tape:
-            return
-        if messagebox.askyesno(
-            "Match loaded tape?",
-            f"The printer has {width:g} mm tape, but this design uses "
-            f"{self.label.tape:g} mm tape. Switch the design to {width:g} mm?",
-            parent=self.root,
-        ):
-            self.set_tape(width)
-        else:
-            self.feedback.set(f"Loaded tape is {width:g} mm. Set the design tape to match before printing.")
+    def match_tape(self, width):
+        if width not in TAPES:
+            self.feedback.set(f"Loaded tape is {width:g} mm, which this editor does not support.")
+        elif width != self.label.tape:
+            # Resize the canvas to the loaded tape; Undo restores the previous width.
+            self.set_tape(width, f"Canvas resized to the loaded {width:g} mm tape")
 
     def show_printer_error(self):
         if self.printer_error:
