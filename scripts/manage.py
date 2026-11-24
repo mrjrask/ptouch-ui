@@ -16,6 +16,22 @@ REPOSITORY = "https://github.com/mrjrask/ptouch-ui.git"
 COMMANDS = ("ptouch-ui", "ptouch-ui-update", "ptouch-ui-uninstall")
 DESKTOP_ID = "io.github.mrjrask.PtouchUI.desktop"
 SLOT_MARKER = ".ptouch-ui-slot"
+PTOUCH_PRINT_REPOSITORY = "https://git.familie-radermacher.ch/linux/ptouch-print.git"
+PTOUCH_PRINT_STATE = "ptouch-print.json"
+# Packages the app needs at runtime on Debian, Ubuntu, and Raspberry Pi OS.
+APP_PACKAGES = ("python3-tk", "python3-venv", "fontconfig", "fonts-dejavu-core")
+# Packages needed to build ptouch-print when the distribution does not ship it.
+PTOUCH_PRINT_BUILD_PACKAGES = (
+    "build-essential",
+    "cmake",
+    "gettext",
+    "git",
+    "libgd-dev",
+    "libusb-1.0-0-dev",
+    "pkg-config",
+)
+PTOUCH_PRINT_PREFIX = Path("/usr/local")
+UDEV_RULES = Path("/etc/udev/rules.d")
 
 
 class InstallError(Exception):
@@ -44,6 +60,192 @@ def install_lock(root):
 
 def run(*arguments, capture=False):
     return subprocess.run(arguments, text=True, check=True, stdout=subprocess.PIPE if capture else None)
+
+
+def has_apt():
+    return bool(shutil.which("apt-get") and shutil.which("dpkg-query"))
+
+
+def privileged(*arguments, check=True):
+    if os.geteuid() != 0:
+        if not shutil.which("sudo"):
+            raise InstallError(f"Install sudo, or run as root: {' '.join(map(str, arguments))}")
+        arguments = ("sudo", *arguments)
+    print("Running:", " ".join(map(str, arguments)), flush=True)
+    return subprocess.run(arguments, text=True, check=check)
+
+
+class Apt:
+    """Installs Debian packages with sudo, refreshing package lists once per run."""
+
+    def __init__(self):
+        self.updated = False
+
+    def update(self):
+        if not self.updated:
+            privileged("apt-get", "update")
+            self.updated = True
+
+    @staticmethod
+    def missing(packages):
+        result = subprocess.run(
+            ["dpkg-query", "-W", "-f=${Package} ${db:Status-Status}\n", *packages],
+            text=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+        )
+        installed = {
+            line.split()[0].split(":")[0]
+            for line in result.stdout.splitlines()
+            if line.split()[1:] == ["installed"]
+        }
+        return [package for package in packages if package not in installed]
+
+    def install(self, packages):
+        missing = self.missing(packages)
+        if missing:
+            print(f"Installing system packages: {' '.join(missing)}", flush=True)
+            self.update()
+            privileged(
+                "env",
+                "DEBIAN_FRONTEND=noninteractive",
+                "apt-get",
+                "install",
+                "-y",
+                "--no-install-recommends",
+                *missing,
+            )
+        return missing
+
+    def candidate(self, package):
+        self.update()
+        result = subprocess.run(
+            ["apt-cache", "policy", package], text=True, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL
+        )
+        for line in result.stdout.splitlines():
+            key, _, value = line.strip().partition(":")
+            if key == "Candidate":
+                return value.strip() not in ("", "(none)")
+        return False
+
+
+def ensure_app_packages(apt):
+    if has_apt():
+        apt.install(APP_PACKAGES)
+    else:
+        print("apt-get was not found. Install Tk for Python, venv, and Fontconfig yourself.")
+
+
+def find_ptouch_print():
+    return shutil.which(os.environ.get("PTOUCH_PRINT") or "ptouch-print")
+
+
+def ensure_ptouch_print(root, apt):
+    """Install ptouch-print if it is missing and record how, so uninstall can remove it."""
+    existing = find_ptouch_print()
+    if existing:
+        print(f"Using the installed ptouch-print at {existing}.")
+        return
+    if not has_apt():
+        raise InstallError(
+            f"ptouch-print was not found and apt-get is unavailable. Build it from {PTOUCH_PRINT_REPOSITORY}."
+        )
+    state_path = root / PTOUCH_PRINT_STATE
+    if apt.candidate("ptouch-print"):
+        if not apt.install(("ptouch-print",)):
+            # The package was already installed, so it is not ours to remove later.
+            print("The ptouch-print package is already installed. Check PATH or PTOUCH_PRINT.")
+            return
+        state = {"method": "apt", "package": "ptouch-print"}
+    else:
+        print("Building ptouch-print from source.", flush=True)
+        apt.install(PTOUCH_PRINT_BUILD_PACKAGES)
+        state = {"method": "source", "files": build_ptouch_print()}
+    state_path.write_text(json.dumps(state, indent=2) + "\n", encoding="utf-8")
+    print(f"Installed ptouch-print at {find_ptouch_print() or 'an unknown location'}.")
+
+
+def build_ptouch_print():
+    with TemporaryDirectory(prefix="ptouch-print-build-") as directory:
+        source = Path(directory) / "ptouch-print"
+        build = source / "build"
+        # The upstream server uses Git's dumb HTTP transport, which cannot make shallow clones.
+        run("git", "clone", "--quiet", PTOUCH_PRINT_REPOSITORY, source)
+        run("cmake", "-S", source, "-B", build, "-DCMAKE_BUILD_TYPE=Release")
+        run("cmake", "--build", build, "--parallel")
+        # Stage the installation first so existing system files, such as a udev rule
+        # the user already has, are never overwritten or recorded as ours.
+        stage = Path(directory) / "stage"
+        subprocess.run(
+            ["cmake", "--install", build, "--prefix", PTOUCH_PRINT_PREFIX],
+            env={**os.environ, "DESTDIR": str(stage)},
+            text=True,
+            check=True,
+        )
+        staged = {
+            Path("/") / path.relative_to(stage): path
+            for path in stage.rglob("*")
+            if path.is_file() and not path.is_symlink()
+        }
+        for rule in (source / "udev").glob("*.rules"):
+            staged.setdefault(UDEV_RULES / rule.name, rule)
+        files = []
+        try:
+            for target, path in sorted(staged.items()):
+                if target.parent == UDEV_RULES and os.path.lexists(target):
+                    print(f"Kept the existing udev rule {target}.")
+                    continue
+                if not removable_file(str(target)):
+                    print(f"Skipped {target}, which is outside {PTOUCH_PRINT_PREFIX} and {UDEV_RULES}.")
+                    continue
+                mode = "0755" if os.access(path, os.X_OK) else "0644"
+                files.append(str(target))
+                privileged("install", "-D", "-m", mode, path, target)
+            if not any(Path(value).name == "ptouch-print" for value in files):
+                raise InstallError("The ptouch-print build did not produce an executable.")
+        except BaseException:
+            # Nothing is recorded for a failed build, so take back what was copied.
+            if files:
+                privileged("rm", "-f", "--", *files, check=False)
+            raise
+        reload_udev()
+    return files
+
+
+def reload_udev():
+    if shutil.which("udevadm"):
+        # Containers and chroots have no running udev; the rules apply after the next boot.
+        privileged("udevadm", "control", "--reload-rules", check=False)
+        privileged("udevadm", "trigger", "--subsystem-match=usb", "--attr-match=idVendor=04f9", check=False)
+
+
+def removable_file(value):
+    path = Path(value)
+    if not path.is_absolute() or ".." in path.parts:
+        return False
+    return path.parent == UDEV_RULES or PTOUCH_PRINT_PREFIX in path.parents
+
+
+def remove_ptouch_print(root):
+    state_path = root / PTOUCH_PRINT_STATE
+    if not state_path.is_file() or state_path.is_symlink():
+        return
+    state = json.loads(state_path.read_text(encoding="utf-8"))
+    method = state.get("method") if isinstance(state, dict) else None
+    if method == "apt":
+        privileged("env", "DEBIAN_FRONTEND=noninteractive", "apt-get", "remove", "-y", "ptouch-print")
+    elif method == "source":
+        files = [
+            value for value in state.get("files", []) if isinstance(value, str) and removable_file(value)
+        ]
+        if files:
+            privileged("rm", "-f", "--", *files)
+        if any(Path(value).parent == UDEV_RULES for value in files):
+            reload_udev()
+    else:
+        raise InstallError(f"Unrecognized ptouch-print record in {state_path}.")
+    state_path.unlink()
+    print("Removed ptouch-print.")
 
 
 def source_revision(source):
@@ -204,10 +406,15 @@ class Installation:
             return False
         return True
 
-    def uninstall(self):
+    def uninstall(self, keep_ptouch_print=False):
         if not self.exists:
             print("P-Touch UI is already uninstalled.")
             return
+        state = self.root / PTOUCH_PRINT_STATE
+        if keep_ptouch_print:
+            state.unlink(missing_ok=True)
+        else:
+            remove_ptouch_print(self.root)
         for link in self.links:
             if owns_link(link, self.target):
                 link.unlink()
@@ -283,6 +490,16 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("operation", choices=("install", "update", "uninstall"))
     parser.add_argument("source", nargs="?", type=Path)
+    parser.add_argument(
+        "--skip-system-packages",
+        action="store_true",
+        help="install: do not install system packages or ptouch-print with sudo",
+    )
+    parser.add_argument(
+        "--keep-ptouch-print",
+        action="store_true",
+        help="uninstall: keep a ptouch-print that the installer added",
+    )
     args = parser.parse_args([command.removeprefix("ptouch-ui-"), *sys.argv[1:]] if installed else None)
     if (args.operation == "install") != (args.source is not None):
         parser.error("Pass the source directory when installing.")
@@ -293,12 +510,24 @@ def main():
         with install_lock(root):
             installation = Installation(root)
             if args.operation == "install":
+                apt = Apt()
+                if not args.skip_system_packages:
+                    ensure_app_packages(apt)
                 source = args.source.resolve()
                 installation.install(source, source_revision(source))
+                if not args.skip_system_packages:
+                    try:
+                        ensure_ptouch_print(root, apt)
+                    except (InstallError, OSError, subprocess.CalledProcessError) as error:
+                        print(
+                            f"P-Touch UI was installed, but ptouch-print could not be installed. {error}",
+                            file=sys.stderr,
+                        )
+                        return 1
             elif args.operation == "update":
                 installation.update()
             else:
-                installation.uninstall()
+                installation.uninstall(keep_ptouch_print=args.keep_ptouch_print)
     except (InstallError, OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
         print(f"P-Touch UI {args.operation} failed. {error}", file=sys.stderr)
         return 1
