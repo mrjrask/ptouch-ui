@@ -262,6 +262,13 @@ class DesktopTests(TestCase):
         self.assertFalse(app.checking)
         app.print_dialog = None
 
+        # A Tcl-created dialog such as a message box has no Tkinter widget; checks must still wait.
+        root.tk.eval("toplevel .tclonly; grab .tclonly")
+        with patch("ptouch_ui.app.Thread") as thread:
+            app.detect()
+        thread.assert_not_called()
+        root.tk.eval("grab release .tclonly; destroy .tclonly")
+
     def test_unexpected_worker_failure_still_notifies_the_dialog(self):
         from queue import SimpleQueue
         from unittest.mock import Mock

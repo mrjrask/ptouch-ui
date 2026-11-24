@@ -7,6 +7,7 @@ import subprocess
 from dataclasses import dataclass
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from threading import RLock
 
 from .document import DPI, MAX_RECORDS
 from .raster import save_png
@@ -17,6 +18,8 @@ from .raster import save_png
 # blank page attached, so the label only gains this short pad.
 PRECUT_DOTS = 16
 RELEASE_HINT = "Press Feed & Cut on the printer to release any tape left inside."
+# Serializes USB access, so a background status check never overlaps a print job.
+DEVICE_LOCK = RLock()
 
 
 def supports(available, option):
@@ -75,6 +78,11 @@ def details(result):
 
 
 def printer_status(serial=""):
+    with DEVICE_LOCK:
+        return read_status(serial)
+
+
+def read_status(serial):
     arguments = ["--serial", serial] if serial else []
     result = run([*arguments, "--info"], timeout=12)
     try:
@@ -137,6 +145,11 @@ def command_output(result):
 
 
 def print_images(images, tape, options, report=lambda _count: None):
+    with DEVICE_LOCK:
+        send_images(images, tape, options, report)
+
+
+def send_images(images, tape, options, report):
     count = len(images) * options.copies
     if not images or count > MAX_RECORDS:
         raise PrinterError(f"Send between 1 and {MAX_RECORDS} labels per print job.")

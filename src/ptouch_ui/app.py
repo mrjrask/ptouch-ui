@@ -1077,7 +1077,7 @@ class App:
         if self.checking:
             return
         # Leave the USB device to a print job, and keep prompts out of other open dialogs.
-        if self.print_dialog is not None or self.root.grab_current() is not None:
+        if self.print_dialog is not None or self.dialog_open():
             self.root.after(DETECT_INTERVAL, self.detect)
             return
         self.checking = True
@@ -1098,7 +1098,7 @@ class App:
             self.printer_indicator.configure(style="StatusReady.TLabel", cursor="")
             # Offer the switch only when a printer appears or its cassette changes, and only
             # when no other dialog is open; otherwise a later check offers it.
-            if payload.width != self.loaded_tape and self.root.grab_current() is None:
+            if payload.width != self.loaded_tape and not self.dialog_open():
                 self.loaded_tape = payload.width
                 self.offer_tape(payload.width)
         else:
@@ -1107,6 +1107,10 @@ class App:
             self.printer_text.set(printer_problem(payload))
             self.printer_indicator.configure(style="PanelMuted.TLabel", cursor="hand2")
         self.root.after(DETECT_INTERVAL, self.detect)
+
+    def dialog_open(self):
+        # Ask Tcl directly: grab_current() raises KeyError for Tcl-created dialogs like message boxes.
+        return bool(self.root.tk.call("grab", "current"))
 
     def offer_tape(self, width):
         if width not in TAPES or width == self.label.tape:
