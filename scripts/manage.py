@@ -166,7 +166,8 @@ def build_ptouch_print():
     with TemporaryDirectory(prefix="ptouch-print-build-") as directory:
         source = Path(directory) / "ptouch-print"
         build = source / "build"
-        run("git", "clone", "--quiet", "--depth", "1", PTOUCH_PRINT_REPOSITORY, source)
+        # The upstream server uses Git's dumb HTTP transport, which cannot make shallow clones.
+        run("git", "clone", "--quiet", PTOUCH_PRINT_REPOSITORY, source)
         run("cmake", "-S", source, "-B", build, "-DCMAKE_BUILD_TYPE=Release")
         run("cmake", "--build", build, "--parallel")
         privileged("cmake", "--install", build, "--prefix", PTOUCH_PRINT_PREFIX)
