@@ -9,6 +9,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
+from ptouch_ui import printer
 from ptouch_ui.printer import PrinterError, PrintOptions, print_images, printer_problem, printer_status
 
 FAKE_PRINTER = """
@@ -276,3 +277,27 @@ class PrinterProblemTests(TestCase):
         self.assertEqual(
             "Printer needs attention", printer_problem("Printer reports media or device error 0x0002.")
         )
+
+
+class FindExecutableTests(TestCase):
+    def test_falls_back_to_a_home_build_when_not_on_path(self):
+        with TemporaryDirectory() as home:
+            binary = Path(home) / "ptouch-print" / "ptouch-print"
+            binary.parent.mkdir()
+            binary.write_text("#!/bin/sh\n", encoding="utf-8")
+            binary.chmod(0o755)
+            environment = {key: value for key, value in os.environ.items() if key != "PTOUCH_PRINT"}
+            with (
+                patch.dict(os.environ, {**environment, "HOME": home, "PATH": home}, clear=True),
+                patch("ptouch_ui.printer.FALLBACK_LOCATIONS", ("~/ptouch-print/ptouch-print",)),
+            ):
+                self.assertEqual(str(binary), printer.find_executable())
+
+    def test_configured_path_does_not_fall_back(self):
+        with (
+            patch.dict(os.environ, {"PTOUCH_PRINT": "/nonexistent/ptouch-print"}),
+            patch("ptouch_ui.printer.shutil.which", return_value=None),
+        ):
+            self.assertIsNone(printer.find_executable())
+            with self.assertRaisesRegex(PrinterError, "ptouch-print was not found at PTOUCH_PRINT"):
+                printer.run(["--info"], timeout=1)
