@@ -29,6 +29,12 @@ where available, or follow its upstream build and udev instructions. Reconnect
 the printer after installing any udev rules. The editor can be installed and
 used to design labels and export PNGs before the USB backend is set up.
 
+If `ptouch-print` is not on `PATH`, the installer offers to build it from
+source with `./build-ptouch-print.sh --install` (described below) after
+installing the app. Pass `--build-ptouch-print` to build it without asking, or
+`--no-build-ptouch-print` to skip the offer. Without a terminal, the installer
+skips the build.
+
 Launch **P-Touch UI** from your desktop app menu or run
 `~/.local/bin/ptouch-ui`. The installer adds a per-user menu entry, stores its
 isolated Python environment under `$XDG_DATA_HOME/ptouch-ui` (normally
@@ -56,8 +62,8 @@ To build [torbenwendt/ptouch-print][fork] from source, run
 with `sudo apt-get` (skip with `--skip-system-packages`), clones the
 repository into `~/ptouch-print` (or `$PTOUCH_PRINT_DIR`), and compiles
 `~/ptouch-print/ptouch-print`. Running it again pulls the latest commit and
-rebuilds. Run `sudo make -C ~/ptouch-print install` afterwards to put it on
-`PATH`.
+rebuilds. Pass `--install` to also run `sudo make install`, which puts it in
+`/usr/bin`.
 
 The app finds `ptouch-print` on `PATH` by default. For a locally built
 binary, set `PTOUCH_PRINT` to its full path when launching from a terminal.

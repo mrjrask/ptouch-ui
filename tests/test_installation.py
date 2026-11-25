@@ -193,3 +193,48 @@ class SystemPackageTests(TestCase):
             run.return_value.stdout = output
             missing = manage.Apt.missing(("python3-tk", "fontconfig", "fonts-dejavu-core", "python3-venv"))
         self.assertEqual(["fontconfig", "python3-venv"], missing)
+
+
+class PtouchPrintBuildTests(TestCase):
+    def test_explicit_choice_skips_the_prompt(self):
+        with patch("builtins.input") as prompt:
+            self.assertTrue(manage.wants_ptouch_print_build(True))
+            self.assertFalse(manage.wants_ptouch_print_build(False))
+        prompt.assert_not_called()
+
+    def test_does_not_offer_when_ptouch_print_is_installed(self):
+        with (
+            patch("scripts.manage.shutil.which", return_value="/usr/bin/ptouch-print"),
+            patch("builtins.input") as prompt,
+        ):
+            self.assertFalse(manage.wants_ptouch_print_build(None))
+        prompt.assert_not_called()
+
+    def test_does_not_prompt_without_a_terminal(self):
+        with (
+            patch("scripts.manage.shutil.which", return_value=None),
+            patch("scripts.manage.sys.stdin.isatty", return_value=False),
+            patch("builtins.input") as prompt,
+        ):
+            self.assertFalse(manage.wants_ptouch_print_build(None))
+        prompt.assert_not_called()
+
+    def test_prompt_defaults_to_yes(self):
+        for answer, expected in (("", True), ("y", True), ("YES", True), ("n", False), ("no", False)):
+            with (
+                patch("scripts.manage.shutil.which", return_value=None),
+                patch("scripts.manage.sys.stdin.isatty", return_value=True),
+                patch("builtins.input", return_value=answer),
+            ):
+                self.assertEqual(expected, manage.wants_ptouch_print_build(None), answer)
+
+    def test_build_passes_install_and_package_options(self):
+        source = Path("/src")
+        with patch("scripts.manage.subprocess.run") as run:
+            manage.build_ptouch_print(source, skip_system_packages=False)
+            manage.build_ptouch_print(source, skip_system_packages=True)
+        self.assertEqual(["/src/build-ptouch-print.sh", "--install"], run.call_args_list[0].args[0])
+        self.assertEqual(
+            ["/src/build-ptouch-print.sh", "--install", "--skip-system-packages"],
+            run.call_args_list[1].args[0],
+        )
