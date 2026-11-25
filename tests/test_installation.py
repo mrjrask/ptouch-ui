@@ -196,45 +196,67 @@ class SystemPackageTests(TestCase):
 
 
 class PtouchPrintBuildTests(TestCase):
+    script = Path("/src/build-ptouch-print.sh")
+
+    def ask(self, answer, *, found, update=False, terminal=True):
+        with (
+            patch("scripts.manage.shutil.which", return_value="/usr/bin/ptouch-print" if found else None),
+            patch("scripts.manage.sys.stdin.isatty", return_value=terminal),
+            patch("builtins.input", return_value=answer) as prompt,
+        ):
+            return manage.wants_ptouch_print_build(None, self.script, update=update), prompt
+
     def test_explicit_choice_skips_the_prompt(self):
         with patch("builtins.input") as prompt:
-            self.assertTrue(manage.wants_ptouch_print_build(True))
-            self.assertFalse(manage.wants_ptouch_print_build(False))
+            self.assertTrue(manage.wants_ptouch_print_build(True, self.script))
+            self.assertFalse(manage.wants_ptouch_print_build(False, self.script, update=True))
         prompt.assert_not_called()
 
-    def test_does_not_offer_when_ptouch_print_is_installed(self):
-        with (
-            patch("scripts.manage.shutil.which", return_value="/usr/bin/ptouch-print"),
-            patch("builtins.input") as prompt,
-        ):
-            self.assertFalse(manage.wants_ptouch_print_build(None))
+    def test_install_does_not_offer_when_ptouch_print_is_installed(self):
+        wanted, prompt = self.ask("y", found=True)
+        self.assertFalse(wanted)
         prompt.assert_not_called()
 
     def test_does_not_prompt_without_a_terminal(self):
-        with (
-            patch("scripts.manage.shutil.which", return_value=None),
-            patch("scripts.manage.sys.stdin.isatty", return_value=False),
-            patch("builtins.input") as prompt,
-        ):
-            self.assertFalse(manage.wants_ptouch_print_build(None))
-        prompt.assert_not_called()
+        for found, update in ((False, False), (True, True), (False, True)):
+            wanted, prompt = self.ask("y", found=found, update=update, terminal=False)
+            self.assertFalse(wanted)
+            prompt.assert_not_called()
 
-    def test_prompt_defaults_to_yes(self):
-        for answer, expected in (("", True), ("y", True), ("YES", True), ("n", False), ("no", False)):
-            with (
-                patch("scripts.manage.shutil.which", return_value=None),
-                patch("scripts.manage.sys.stdin.isatty", return_value=True),
-                patch("builtins.input", return_value=answer),
-            ):
-                self.assertEqual(expected, manage.wants_ptouch_print_build(None), answer)
+    def test_missing_ptouch_print_prompt_defaults_to_yes(self):
+        for update in (False, True):
+            for answer, expected in (("", True), ("y", True), ("YES", True), ("n", False), ("no", False)):
+                self.assertEqual(expected, self.ask(answer, found=False, update=update)[0], answer)
+
+    def test_update_offers_a_rebuild_that_defaults_to_no(self):
+        for answer, expected in (("", False), ("n", False), ("y", True), ("Yes", True)):
+            wanted, prompt = self.ask(answer, found=True, update=True)
+            self.assertEqual(expected, wanted, answer)
+            self.assertIn("Rebuild", prompt.call_args.args[0])
 
     def test_build_passes_install_and_package_options(self):
-        source = Path("/src")
         with patch("scripts.manage.subprocess.run") as run:
-            manage.build_ptouch_print(source, skip_system_packages=False)
-            manage.build_ptouch_print(source, skip_system_packages=True)
-        self.assertEqual(["/src/build-ptouch-print.sh", "--install"], run.call_args_list[0].args[0])
+            manage.build_ptouch_print(self.script, skip_system_packages=False)
+            manage.build_ptouch_print(self.script, skip_system_packages=True)
+        self.assertEqual([str(self.script), "--install"], run.call_args_list[0].args[0])
         self.assertEqual(
-            ["/src/build-ptouch-print.sh", "--install", "--skip-system-packages"],
-            run.call_args_list[1].args[0],
+            [str(self.script), "--install", "--skip-system-packages"], run.call_args_list[1].args[0]
         )
+
+    def test_failed_build_reports_an_error_after_update(self):
+        with TemporaryDirectory() as directory:
+            script = Path(directory) / "build-ptouch-print.sh"
+            script.write_text("", encoding="utf-8")
+            with patch("scripts.manage.build_ptouch_print", side_effect=CalledProcessError(1, "make")):
+                status = manage.offer_ptouch_print_build(
+                    True, script, update=True, skip_system_packages=False
+                )
+        self.assertEqual(1, status)
+
+    def test_missing_build_script_is_skipped(self):
+        with patch("scripts.manage.build_ptouch_print") as build:
+            status = manage.offer_ptouch_print_build(
+                True, Path("/nonexistent/build-ptouch-print.sh"), update=True, skip_system_packages=False
+            )
+        self.assertEqual(0, status)
+        build.assert_not_called()

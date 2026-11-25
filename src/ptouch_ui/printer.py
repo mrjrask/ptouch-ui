@@ -22,6 +22,9 @@ RELEASE_HINT = "Press Feed & Cut on the printer to release any tape left inside.
 DEVICE_LOCK = RLock()
 USB_DEVICES = Path("/sys/bus/usb/devices")
 PT2430PC_USB_ID = "04f9:202d"
+# Checked after PATH: desktop launchers can start with a shorter PATH than a terminal, and
+# build-ptouch-print.sh leaves an uninstalled build in ~/ptouch-print.
+FALLBACK_LOCATIONS = ("/usr/local/bin/ptouch-print", "/usr/bin/ptouch-print", "~/ptouch-print/ptouch-print")
 
 
 def supports(available, option):
@@ -55,10 +58,32 @@ class PrintOptions:
             raise ValueError("Use 0–1000 feed dots, or leave it blank for the printer default.")
 
 
+def find_executable():
+    configured = os.environ.get("PTOUCH_PRINT")
+    if configured:
+        return shutil.which(configured)
+    found = shutil.which("ptouch-print")
+    if found:
+        return found
+    for location in FALLBACK_LOCATIONS:
+        path = Path(location).expanduser()
+        if path.is_file() and os.access(path, os.X_OK):
+            return str(path)
+    return None
+
+
 def run(arguments, timeout):
-    executable = shutil.which(os.environ.get("PTOUCH_PRINT") or "ptouch-print")
+    executable = find_executable()
     if not executable:
-        raise PrinterError("ptouch-print was not found. Install it or add it to PATH.")
+        if os.environ.get("PTOUCH_PRINT"):
+            raise PrinterError(
+                f"ptouch-print was not found at PTOUCH_PRINT={os.environ['PTOUCH_PRINT']}. "
+                "Fix or unset PTOUCH_PRINT."
+            )
+        raise PrinterError(
+            "ptouch-print was not found on PATH, in /usr/local/bin or /usr/bin, or in ~/ptouch-print. "
+            "Install it or run build-ptouch-print.sh --install from the P-Touch UI checkout."
+        )
     try:
         return subprocess.run(
             [executable, *arguments],

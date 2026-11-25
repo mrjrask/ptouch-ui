@@ -50,6 +50,11 @@ repair a missing launcher or an incompatible Python environment. Older
 environments stay available to already-running app windows, and the
 uninstaller removes those environments.
 
+After updating, the updater offers to build `ptouch-print` if it is missing,
+or to rebuild it from the latest source if it is installed (the rebuild
+defaults to no). `--build-ptouch-print` and `--no-build-ptouch-print` answer
+without asking, as with the installer.
+
 Run `~/.local/bin/ptouch-ui-uninstall` to remove the installed app, its
 commands, and its desktop menu entry. The uninstaller leaves shared system
 packages and any existing `ptouch-print` installation in place, including
@@ -65,8 +70,10 @@ repository into `~/ptouch-print` (or `$PTOUCH_PRINT_DIR`), and compiles
 rebuilds. Pass `--install` to also run `sudo make install`, which puts it in
 `/usr/bin`.
 
-The app finds `ptouch-print` on `PATH` by default. For a locally built
-binary, set `PTOUCH_PRINT` to its full path when launching from a terminal.
+The app finds `ptouch-print` on `PATH` by default. If it is not on `PATH`, the
+app also checks `/usr/local/bin`, `/usr/bin`, and the uninstalled build in
+`~/ptouch-print`. For a binary somewhere else, set `PTOUCH_PRINT` to its full
+path when launching from a terminal.
 
 ```sh
 PTOUCH_PRINT=/full/path/to/ptouch-print ~/.local/bin/ptouch-ui
