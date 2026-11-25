@@ -111,6 +111,29 @@ def ensure_app_packages(apt):
         print("apt-get was not found. Install Tk for Python, venv, and Fontconfig yourself.")
 
 
+def wants_ptouch_print_build(choice):
+    """Return whether to build ptouch-print, asking on a terminal when choice is None."""
+    if choice is not None:
+        return choice
+    if shutil.which("ptouch-print"):
+        return False
+    if not sys.stdin.isatty():
+        print("ptouch-print was not found. Run ./build-ptouch-print.sh to build it.")
+        return False
+    answer = input(
+        "ptouch-print, needed for USB printing, was not found.\n"
+        "Build it from source and install it to /usr/bin now? [Y/n] "
+    )
+    return answer.strip().lower() in ("", "y", "yes")
+
+
+def build_ptouch_print(source, *, skip_system_packages):
+    arguments = [str(source / "build-ptouch-print.sh"), "--install"]
+    if skip_system_packages:
+        arguments.append("--skip-system-packages")
+    subprocess.run(arguments, check=True)
+
+
 def source_revision(source):
     if not shutil.which("git") or not (source / ".git").exists():
         return ""
@@ -359,6 +382,21 @@ def main():
         action="store_true",
         help="install: skip installing system prerequisites with sudo",
     )
+    build = parser.add_mutually_exclusive_group()
+    build.add_argument(
+        "--build-ptouch-print",
+        dest="build_ptouch_print",
+        action="store_const",
+        const=True,
+        help="install: build and install ptouch-print without asking",
+    )
+    build.add_argument(
+        "--no-build-ptouch-print",
+        dest="build_ptouch_print",
+        action="store_const",
+        const=False,
+        help="install: do not offer to build ptouch-print",
+    )
     parser.add_argument(
         "--keep-ptouch-print",
         action="store_true",
@@ -386,6 +424,19 @@ def main():
     except (InstallError, OSError, ValueError, KeyError, subprocess.CalledProcessError) as error:
         print(f"P-Touch UI {args.operation} failed. {error}", file=sys.stderr)
         return 1
+    if args.operation == "install":
+        try:
+            if wants_ptouch_print_build(args.build_ptouch_print):
+                build_ptouch_print(source, skip_system_packages=args.skip_system_packages)
+        except (EOFError, KeyboardInterrupt):
+            print("\nSkipped building ptouch-print. Run ./build-ptouch-print.sh to build it later.")
+        except (OSError, subprocess.CalledProcessError) as error:
+            print(
+                f"P-Touch UI was installed, but building ptouch-print failed. {error}\n"
+                "Fix the problem above and run ./build-ptouch-print.sh --install to retry.",
+                file=sys.stderr,
+            )
+            return 1
     return 0
 
 

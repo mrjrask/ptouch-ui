@@ -2,20 +2,23 @@
 # Clone https://github.com/torbenwendt/ptouch-print into the home folder and
 # compile it. Running it again pulls the latest commit and rebuilds.
 #
-# Usage: ./build-ptouch-print.sh [--skip-system-packages]
+# Usage: ./build-ptouch-print.sh [--skip-system-packages] [--install]
 #
+# --install runs "sudo make install" afterwards so ptouch-print is on PATH.
 # Set PTOUCH_PRINT_DIR to clone somewhere other than ~/ptouch-print.
 set -eu
 
 repository="https://github.com/torbenwendt/ptouch-print.git"
 directory="${PTOUCH_PRINT_DIR:-$HOME/ptouch-print}"
 install_packages=yes
+install_binary=no
 
 for argument in "$@"; do
     case "$argument" in
         --skip-system-packages) install_packages=no ;;
+        --install) install_binary=yes ;;
         -h|--help)
-            sed -n '2,7s/^# \{0,1\}//p' "$0"
+            sed -n '2,8s/^# \{0,1\}//p' "$0"
             exit 0
             ;;
         *)
@@ -28,6 +31,9 @@ done
 # Build prerequisites on Debian, Ubuntu, and Raspberry Pi OS.
 packages="git build-essential autoconf automake autopoint gettext pkg-config libgd-dev libusb-1.0-0-dev"
 
+sudo_command=""
+[ "$(id -u)" -eq 0 ] || sudo_command=sudo
+
 if [ "$install_packages" = yes ] && command -v apt-get >/dev/null 2>&1; then
     missing=""
     for package in $packages; do
@@ -37,8 +43,6 @@ if [ "$install_packages" = yes ] && command -v apt-get >/dev/null 2>&1; then
     done
     if [ -n "$missing" ]; then
         echo "Installing build prerequisites:$missing"
-        sudo_command=""
-        [ "$(id -u)" -eq 0 ] || sudo_command=sudo
         $sudo_command apt-get update
         # shellcheck disable=SC2086
         $sudo_command apt-get install -y $missing
@@ -73,6 +77,11 @@ fi
 
 echo
 echo "Built $binary"
+if [ "$install_binary" = yes ]; then
+    $sudo_command make install
+    echo "Installed ptouch-print to /usr/bin."
+    exit 0
+fi
 echo "Launch P-Touch UI with it:"
 echo "  PTOUCH_PRINT=$binary ~/.local/bin/ptouch-ui"
 echo "Or install it system-wide:"
