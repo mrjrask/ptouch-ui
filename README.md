@@ -51,6 +51,14 @@ printer backends installed by older versions of P-Touch UI. Saved labels,
 exported PNGs, and the source checkout stay in place.
 `./update.sh` and `./uninstall.sh` in the clone provide the same operations.
 
+To build [torbenwendt/ptouch-print][fork] from source, run
+`./build-ptouch-print.sh` in the clone. It installs the build prerequisites
+with `sudo apt-get` (skip with `--skip-system-packages`), clones the
+repository into `~/ptouch-print` (or `$PTOUCH_PRINT_DIR`), and compiles
+`~/ptouch-print/ptouch-print`. Running it again pulls the latest commit and
+rebuilds. Run `sudo make -C ~/ptouch-print install` afterwards to put it on
+`PATH`.
+
 The app finds `ptouch-print` on `PATH` by default. For a locally built
 binary, set `PTOUCH_PRINT` to its full path when launching from a terminal.
 
@@ -284,5 +292,6 @@ artifacts. The repository currently has no distribution license. Confirm
 redistribution terms with the project owner before redistributing the artifacts.
 
 [upstream]: https://git.familie-radermacher.ch/linux/ptouch-print.git
+[fork]: https://github.com/torbenwendt/ptouch-print
 [parallels-usb]: https://kb.parallels.com/en/122993
 [parallels-resume]: https://kb.parallels.com/en/125203
