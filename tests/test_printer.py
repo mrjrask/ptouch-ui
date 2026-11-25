@@ -229,9 +229,7 @@ class PrinterTests(TestCase):
         # Only the status check goes through ptouch-print; the job goes straight to USB.
         self.assertFalse(self.log.exists())
         self.assertEqual([("open", "A1"), usb.INITIALIZE, usb.RASTER_MODE, usb.AUTO_CUT], writes[:4])
-        self.assertEqual(
-            [(100, usb.NEXT_PAGE), (100, usb.LAST_PAGE)], self.pages(writes)
-        )
+        self.assertEqual([(100, usb.NEXT_PAGE), (100, usb.LAST_PAGE)], self.pages(writes))
         self.assertEqual([1, 2], progress)
         line = writes[4]
         self.assertEqual(b"G\x10\x00", line[:3])
