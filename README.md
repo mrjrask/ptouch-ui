@@ -196,11 +196,11 @@ two-color indexed PNG. The exported raster is suitable for
 5. **Trim blank leader (pre-cut)** is on by default. The cutter sits about
    22 mm ahead of the print head, so without it each label starts with that
    much blank tape. With it, the app sends the job to the printer itself
-   through libusb instead of through `ptouch-print`: a short blank page, then
-   every label (or the strip) as its own page, in one job with auto-cut
-   turned on. The printer cuts at each page boundary as it reaches the
-   cutter, so the blank leader comes out first as a scrap piece and each
-   label begins where the design does. `ptouch-print` cannot do this because
+   through libusb instead of through `ptouch-print`: every label (or the
+   strip) as its own page, in one job with auto-cut turned on. The printer
+   cuts the blank leader off before the first page and cuts again at each
+   page boundary, so the leader comes out first as a single scrap piece and
+   each label begins where the design does. `ptouch-print` cannot do this because
    every run is a separate job that ends with a feed, and the printer does
    not cut at a boundary left by an earlier job. This needs `libusb-1.0`
    (already required by `ptouch-print`) and the same USB permissions. If a

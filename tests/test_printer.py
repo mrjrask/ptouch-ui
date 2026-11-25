@@ -222,7 +222,7 @@ class PrinterTests(TestCase):
                 lines = []
         return pages
 
-    def test_precut_sends_a_blank_page_and_every_label_as_one_auto_cut_job(self):
+    def test_precut_sends_every_label_as_one_auto_cut_job_without_a_blank_page(self):
         writes = self.usb_job()
         progress = []
         print_images([self.image, self.image], 12, PrintOptions(precut=True, serial="A1"), progress.append)
@@ -230,7 +230,7 @@ class PrinterTests(TestCase):
         self.assertFalse(self.log.exists())
         self.assertEqual([("open", "A1"), usb.INITIALIZE, usb.RASTER_MODE, usb.AUTO_CUT], writes[:4])
         self.assertEqual(
-            [(16, usb.NEXT_PAGE), (100, usb.NEXT_PAGE), (100, usb.LAST_PAGE)], self.pages(writes)
+            [(100, usb.NEXT_PAGE), (100, usb.LAST_PAGE)], self.pages(writes)
         )
         self.assertEqual([1, 2], progress)
         line = writes[4]
@@ -247,11 +247,11 @@ class PrinterTests(TestCase):
         self.assertEqual(1 << (26 + 75), int.from_bytes(top, "big"))
         self.assertEqual(1 << 26, int.from_bytes(bottom, "big"))
 
-    def test_precut_strip_prints_one_page_with_cut_marks_after_the_leader(self):
+    def test_precut_strip_prints_one_page_with_cut_marks(self):
         writes = self.usb_job()
         progress = []
         print_images([self.image], 12, PrintOptions(copies=2, strip=True, precut=True), progress.append)
-        self.assertEqual([(16, usb.NEXT_PAGE), (209, usb.LAST_PAGE)], self.pages(writes))
+        self.assertEqual([(209, usb.LAST_PAGE)], self.pages(writes))
         self.assertEqual([2], progress)
         strip = printer.strip_image([Image.new("L", (10, 76), 255)] * 2)
         self.assertEqual(29, strip.width)
@@ -268,7 +268,7 @@ class PrinterTests(TestCase):
 
     def test_failed_trimmed_job_tells_the_user_to_release_the_tape(self):
         progress = []
-        self.usb_job(fail_after=2)
+        self.usb_job(fail_after=1)
         with self.assertRaisesRegex(PrinterError, "Completed 1 of 2 labels. Press Feed & Cut"):
             print_images([self.image], 12, PrintOptions(copies=2, precut=True), progress.append)
         self.assertEqual([1], progress)

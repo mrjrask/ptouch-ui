@@ -1,8 +1,9 @@
 """Send multi-page raster jobs to the PT-2430PC through libusb.
 
 ptouch-print starts a new job for every run and ends it with a feed, so the printer never sees
-a page boundary it can cut at before a label. Trimming the blank leader needs one job with a
-short blank page, then the labels, and auto-cut turned on, so this module writes that job itself.
+a page boundary it can cut at before a label. Trimming the blank leader needs one job with
+auto-cut turned on, which cuts the leader off before the first page, so this module writes that
+job itself.
 """
 
 import ctypes
