@@ -319,6 +319,9 @@ class DesktopTests(TestCase):
         root = tk.Tk()
         self.addCleanup(root.destroy)
         app = App(root)
+        # Fit length to content is on for new labels, and the opening example is fitted.
+        self.assertTrue(app.auto_fit.get())
+        self.assertEqual(app.content_fit(app.label), app.label.length)
         app.new_blank()
         root.update()
         self.assertEqual(12, app.label.tape)
@@ -333,6 +336,12 @@ class DesktopTests(TestCase):
         self.assertIn("24 mm", app.feedback.get())
         app.undo()
         self.assertEqual(12, app.label.tape)
+
+        # New labels and templates start on the loaded tape, without another printer change.
+        with patch("ptouch_ui.app.messagebox.askyesnocancel", return_value=False):
+            app.new("Cable ID")
+        self.assertEqual(24, app.label.tape)
+        self.assertEqual("24 mm", app.tape.get())
 
     def test_unexpected_worker_failure_still_notifies_the_dialog(self):
         from queue import SimpleQueue

@@ -184,7 +184,8 @@ class App:
         self.length = tk.StringVar(root)
         self.zoom = tk.StringVar(root, value="Fit")
         self.grid = tk.BooleanVar(root)
-        self.auto_fit = tk.BooleanVar(root)
+        # New labels grow and shrink with their content until a length is typed.
+        self.auto_fit = tk.BooleanVar(root, value=True)
         self.tape_summary = tk.StringVar(root)
         self.record_title = tk.StringVar(root)
         self.feedback = tk.StringVar(root)
@@ -193,6 +194,8 @@ class App:
         self.loaded_tape = None
         self.printer_error = ""
         self.build()
+        self.canvas.max_length = MAX_LENGTH
+        self.label = self.saved = self.fitted(self.label)
         self.refresh()
         self.bind_keys()
         self.device_callback = root.after_idle(self.detect)
@@ -704,6 +707,10 @@ class App:
     def reset(self, label, name, path=None):
         if path is None:
             label = self.fitted(label)
+        else:
+            # Keep a saved file's length: fit it to its content only if it already is.
+            self.auto_fit.set(label.length == self.content_fit(label))
+            self.canvas.max_length = MAX_LENGTH if self.auto_fit.get() else None
         self.label = self.saved = label
         self.name, self.path = name, path
         self.selected, self.record = None, 0
@@ -733,7 +740,11 @@ class App:
 
     def new(self, name):
         if self.confirm_replacement():
-            self.reset(template(name), name if name != TEMPLATES[0] else "Untitled label")
+            label = template(name)
+            # Start new labels on the tape the printer reported, not the template's default.
+            if self.loaded_tape in TAPES and self.loaded_tape != label.tape:
+                label = replace(label, tape=self.loaded_tape)
+            self.reset(label, name if name != TEMPLATES[0] else "Untitled label")
 
     def open(self):
         path = filedialog.askopenfilename(parent=self.root, title="Open label", filetypes=PROJECT_FILES)
@@ -837,8 +848,12 @@ class App:
         """Return label trimmed to its content while Fit length to content is checked."""
         if not self.auto_fit.get():
             return label
-        length = content_length(label) if label.elements else MIN_LENGTH
+        length = self.content_fit(label)
         return label if length == label.length else replace(label, length=length)
+
+    @staticmethod
+    def content_fit(label):
+        return content_length(label) if label.elements else MIN_LENGTH
 
     @property
     def bounds(self):

@@ -96,11 +96,11 @@ python3 -m venv .venv
    editable **Equipment tag** example. Templates also include **Cable ID**,
    **Storage label**, and **Numbered inventory**.
 2. Set the tape width and design length under **Label setup**. Length can be
-   5–300 mm. Enter the length and press **Set** or **Enter**, or check
-   **Fit length to content** to keep the label trimmed to its objects with
-   equal margins at both ends. While it is checked, an empty label uses the
-   minimum length and the length adjusts automatically as objects are added,
-   moved, resized, or removed. Typing a length turns it off.
+   5–300 mm. **Fit length to content** is checked by default and keeps the
+   label trimmed to its objects with equal margins at both ends. While it is
+   checked, an empty label uses the minimum length and the length adjusts
+   automatically as objects are added, moved, resized, or removed. Typing a
+   length and pressing **Set** or **Enter** turns it off.
 3. Add objects from the toolbar. Select on the label or in **Layers**, drag to
    move, and drag a corner handle to resize. Double-click an object to edit its
    content or style. Use the inspector for millimeter coordinates, size,
@@ -183,7 +183,8 @@ two-color indexed PNG. The exported raster is suitable for
    and shows the loaded tape in the toolbar, so plugging in the printer or
    swapping a cassette needs no extra step. If the design uses a different
    width, the app resizes the canvas to the loaded tape once per printer or
-   cassette change; use **Undo** to restore the previous width. When the
+   cassette change; use **Undo** to restore the previous width. New blank
+   labels and templates start on the loaded tape width. When the
    printer is missing or reports a problem, click the toolbar status for
    details. Checks pause while the print dialog is open, and the app checks
    the tape and resolution again before starting a job.
@@ -194,17 +195,20 @@ two-color indexed PNG. The exported raster is suitable for
    trim marks between them. A job can contain up to 250 labels total.
 5. **Trim blank leader (pre-cut)** is on by default. The cutter sits about
    22 mm ahead of the print head, so without it each label starts with that
-   much blank tape. With it, the app prints a short blank page that is not fed
-   or cut (`--chain`) before each label. If the installed `ptouch-print`
-   enables auto-cut for the PT-2430PC, the printer cuts that blank tape off as
-   a scrap piece when the label starts, so the label begins where the design
-   does. Older builds that leave auto-cut off print the blank page attached to
-   the label, adding about 2 mm to the leader; update `ptouch-print` to trim it.
-   Each label is still fed and cut as its own job. This needs a `ptouch-print`
-   with `--chain` and `--pad`. If a pre-cut job stops partway through, press
-   **Feed & Cut** on the printer to release the tape.
+   much blank tape. With it, the app sends the job to the printer itself
+   through libusb instead of through `ptouch-print`: a short blank page, then
+   every label (or the strip) as its own page, in one job with auto-cut
+   turned on. The printer cuts at each page boundary as it reaches the
+   cutter, so the blank leader comes out first as a scrap piece and each
+   label begins where the design does. `ptouch-print` cannot do this because
+   every run is a separate job that ends with a feed, and the printer does
+   not cut at a boundary left by an earlier job. This needs `libusb-1.0`
+   (already required by `ptouch-print`) and the same USB permissions. If a
+   pre-cut job stops partway through, press **Feed & Cut** on the printer to
+   release the tape. Turn it off to print through `ptouch-print` instead.
 6. Leave **Feed dots** blank for the printer default. Set it to 0–1000 to adjust
-   feed on a version of `ptouch-print` that supports `--feed`. Use **USB
+   feed on a version of `ptouch-print` that supports `--feed`; this needs
+   **Trim blank leader** off. Use **USB
    serial** to select a printer if your version supports `--serial`.
 
 Tape widths and the printable heights used by the editor at 180 dpi:
