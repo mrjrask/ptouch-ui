@@ -57,7 +57,7 @@ def load_settings():
 
 def load_unit():
     name = load_settings().get("units")
-    return name if name in UNITS else DEFAULT_UNIT
+    return name if isinstance(name, str) and name in UNITS else DEFAULT_UNIT
 
 
 def store_unit(name):

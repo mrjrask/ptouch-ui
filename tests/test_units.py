@@ -33,5 +33,8 @@ class UnitTests(TestCase):
             self.assertEqual(Path(config) / "ptouch-ui" / "settings.json", settings_file())
             settings_file().write_text('{"units": "furlongs"}', encoding="utf-8")
             self.assertEqual(DEFAULT_UNIT, load_unit())
+            for value in ("[]", "{}", "3"):
+                settings_file().write_text(f'{{"units": {value}}}', encoding="utf-8")
+                self.assertEqual(DEFAULT_UNIT, load_unit())
             settings_file().write_text("[1, 2]", encoding="utf-8")
             self.assertEqual(DEFAULT_UNIT, load_unit())
