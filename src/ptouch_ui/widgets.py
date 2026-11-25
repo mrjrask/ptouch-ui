@@ -9,6 +9,7 @@ from PIL import Image, ImageTk
 
 from .document import BARCODES, DOTS_PER_MM, DPI, MAX_FONT_SIZE, dots
 from .raster import render
+from .units import DEFAULT_UNIT, UNITS
 
 INK = "#1b2937"
 MUTED = "#536478"
@@ -255,6 +256,7 @@ class LabelCanvas(ttk.Frame):
         self.origin = (0, 0)
         self.drag = None
         self.grid_enabled = False
+        self.unit = UNITS[DEFAULT_UNIT]
         # While set, objects may be dragged past the label end up to this many mm.
         self.max_length = None
         self.raster_key = None
@@ -333,30 +335,40 @@ class LabelCanvas(ttk.Frame):
 
     def draw_rulers(self, label, left, top, pw, ph):
         canvas = self.canvas
+        unit = self.unit
         canvas.create_line(left, top - 17, left + pw, top - 17, fill="#9eafc4")
         canvas.create_line(left - 14, top, left - 14, top + ph, fill="#9eafc4")
-        pixels_per_mm = DOTS_PER_MM * self.scale
-        major = next(step for step in (5, 10, 20, 50, 100) if step * pixels_per_mm >= 32)
-        tick = max(1, major // 5)
-        for mm in range(0, int(label.length) + 1, tick):
-            x = left + dots(mm) * self.scale
-            marked = mm % major == 0
-            canvas.create_line(x, top - 17, x, top - (24 if marked else 20), fill=RULER)
-            if marked:
-                canvas.create_text(x, top - 31, text=str(mm), fill=RULER, font=self.ruler_font)
-        # The vertical ruler measures the printable height inside the physical tape.
-        for mm in range(int(label.size[1] / DOTS_PER_MM) + 1):
-            if pixels_per_mm < 4 and mm % 5:
-                continue
-            y = top + dots(mm) * self.scale
-            marked = mm % 5 == 0
-            canvas.create_line(left - (21 if marked else 17), y, left - 14, y, fill=RULER)
-            if marked and pixels_per_mm >= 2.5:
-                canvas.create_text(left - 25, y, text=str(mm), anchor="e", fill=RULER, font=self.ruler_font)
-        canvas.create_text(left - 15, top - 31, text="mm", anchor="e", fill=RULER, font=self.ruler_font)
+        pixels_per_unit = DOTS_PER_MM * unit.mm * self.scale
+        for kind, end_mm, room in (("x", label.length, 32), ("y", label.size[1] / DOTS_PER_MM, 12)):
+            major = next((step for step in unit.rulers if step * pixels_per_unit >= room), unit.rulers[-1])
+            minor = major / unit.divisions
+            # Leave out minor ticks that would crowd together.
+            every = 1 if minor * pixels_per_unit >= 4 else unit.divisions
+            count = int(unit.from_mm(end_mm) / minor + 1e-6)
+            for step in range(0, count + 1, every):
+                value = step * minor
+                offset = dots(unit.to_mm(value)) * self.scale
+                marked = step % unit.divisions == 0
+                text = f"{round(value, 4):g}"
+                if kind == "x":
+                    x = left + offset
+                    canvas.create_line(x, top - 17, x, top - (24 if marked else 20), fill=RULER)
+                    if marked:
+                        canvas.create_text(x, top - 31, text=text, fill=RULER, font=self.ruler_font)
+                else:
+                    # The vertical ruler measures the printable height inside the physical tape.
+                    y = top + offset
+                    canvas.create_line(left - (21 if marked else 17), y, left - 14, y, fill=RULER)
+                    if marked:
+                        canvas.create_text(
+                            left - 25, y, text=text, anchor="e", fill=RULER, font=self.ruler_font
+                        )
+        canvas.create_text(left - 15, top - 31, text=unit.name, anchor="e", fill=RULER, font=self.ruler_font)
 
     def grid_step_mm(self):
-        return 5 if DOTS_PER_MM * self.scale < 7 else 1
+        fine, coarse = self.unit.grid
+        fine_mm = self.unit.to_mm(fine)
+        return self.unit.to_mm(coarse) if fine_mm * DOTS_PER_MM * self.scale < 7 else fine_mm
 
     def snap(self, value):
         if not self.grid_enabled:
@@ -369,13 +381,13 @@ class LabelCanvas(ttk.Frame):
 
     def draw_grid(self, left, top, right, bottom):
         step = self.grid_step_mm()
-        for mm in range(step, int(self.label.length) + 1, step):
-            x = left + dots(mm) * self.scale
+        for index in range(1, int(self.label.length / step + 1e-6) + 1):
+            x = left + dots(index * step) * self.scale
             if x >= right:
                 break
             self.canvas.create_line(x, top, x, bottom, fill="#9aabc5", stipple="gray25")
-        for mm in range(step, int(self.label.size[1] / DOTS_PER_MM) + 1, step):
-            y = top + dots(mm) * self.scale
+        for index in range(1, int(self.label.size[1] / DOTS_PER_MM / step + 1e-6) + 1):
+            y = top + dots(index * step) * self.scale
             if y >= bottom:
                 break
             self.canvas.create_line(left, y, right, y, fill="#9aabc5", stipple="gray25")

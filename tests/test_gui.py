@@ -431,3 +431,53 @@ class DesktopTests(TestCase):
         warning.assert_called_once()
         self.assertTrue(root.winfo_exists())
         app.print_dialog = None
+
+    def test_switching_units_converts_the_inspector_and_is_remembered(self):
+        import tkinter as tk
+        from dataclasses import replace
+
+        from ptouch_ui.app import App
+        from ptouch_ui.document import Element, dots
+
+        root = tk.Tk()
+        self.addCleanup(root.destroy)
+        app = App(root)
+        app.new_blank()
+        app.auto_fit.set(False)
+        app.toggle_auto_fit()
+        app.change(replace(app.label, length=50.8), None)
+        app.insert(Element("Rectangle", dots(10), dots(2), dots(25.4), dots(5)))
+        root.update()
+        self.assertEqual("50.8", app.length.get())
+
+        app.units.set("in")
+        app.change_units()
+        root.update()
+        self.assertEqual("2", app.length.get())
+        self.assertIn("2 in long", app.tape_summary.get())
+        self.assertEqual("Length (in)", app.length_title.cget("text"))
+        self.assertEqual("1.000", app.geometry["width"].get())
+        self.assertEqual("Width (in)", app.geometry_titles["width"][1].cget("text"))
+        before = app.object
+        app.apply_geometry()
+        self.assertEqual(before, app.object)
+        app.geometry["x"].set("0.5")
+        app.apply_geometry()
+        self.assertEqual(dots(12.7), app.object.x)
+        app.length.set("3")
+        app.change_length()
+        self.assertAlmostEqual(76.2, app.label.length)
+        app.grid.set(True)
+        app.toggle_grid()
+        app.canvas.zoom = 1
+        app.canvas.redraw()
+        self.assertAlmostEqual(25.4 / 16, app.canvas.grid_step_mm())
+
+        app.units.set("cm")
+        app.change_units()
+        self.assertEqual("7.62", app.length.get())
+        self.assertEqual("1.27", app.geometry["x"].get())
+
+        other = tk.Tk()
+        self.addCleanup(other.destroy)
+        self.assertEqual("cm", App(other).units.get())

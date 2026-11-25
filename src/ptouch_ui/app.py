@@ -35,6 +35,7 @@ from .print_dialog import PrintDialog, background
 from .printer import PrinterError, printer_problem, printer_status
 from .raster import import_image, largest_text_size, list_fonts, render, save_png, text_box, text_extent
 from .recent import forget_recent, load_recent, remember_recent, store_recent
+from .units import UNITS, load_unit, store_unit
 from .widgets import (
     BLUE,
     INK,
@@ -184,6 +185,7 @@ class App:
         self.length = tk.StringVar(root)
         self.zoom = tk.StringVar(root, value="Fit")
         self.grid = tk.BooleanVar(root)
+        self.units = tk.StringVar(root, value=load_unit())
         # New labels grow and shrink with their content until a length is typed.
         self.auto_fit = tk.BooleanVar(root, value=True)
         self.tape_summary = tk.StringVar(root)
@@ -195,6 +197,7 @@ class App:
         self.printer_error = ""
         self.build()
         self.canvas.max_length = MAX_LENGTH
+        self.canvas.unit = self.unit
         self.label = self.saved = self.fitted(self.label)
         self.refresh()
         self.bind_keys()
@@ -316,6 +319,12 @@ class App:
         zoom.pack(side="right")
         zoom.bind("<<ComboboxSelected>>", self.change_zoom)
         ttk.Label(document, text="Zoom", style="PanelMuted.TLabel").pack(side="right", padx=(12, 4))
+        units = ttk.Combobox(
+            document, textvariable=self.units, values=tuple(UNITS), state="readonly", width=4
+        )
+        units.pack(side="right")
+        units.bind("<<ComboboxSelected>>", self.change_units)
+        ttk.Label(document, text="Units", style="PanelMuted.TLabel").pack(side="right", padx=(12, 4))
         ttk.Checkbutton(
             document, text="Grid", variable=self.grid, style="Panel.TCheckbutton", command=self.toggle_grid
         ).pack(side="right", padx=(5, 5))
@@ -419,9 +428,8 @@ class App:
         )
         tape.grid(row=0, column=1, sticky="ew", padx=6)
         tape.bind("<<ComboboxSelected>>", self.change_tape)
-        ttk.Label(setup, text="Length (mm)", style="PanelMuted.TLabel").grid(
-            row=1, column=0, sticky="w", pady=4
-        )
+        self.length_title = ttk.Label(setup, style="PanelMuted.TLabel")
+        self.length_title.grid(row=1, column=0, sticky="w", pady=4)
         length = ttk.Entry(setup, textvariable=self.length, width=6)
         length.grid(row=1, column=1, sticky="ew", padx=6)
         length.bind("<Return>", lambda _event: self.change_length())
@@ -456,11 +464,14 @@ class App:
         form = ttk.Frame(self.object_form, style="Panel.TFrame")
         form.pack(fill="x")
         self.geometry = {}
+        self.geometry_titles = {}
         for number, (key, name) in enumerate(
-            (("x", "X (mm)"), ("y", "Y (mm)"), ("width", "Width (mm)"), ("height", "Height (mm)"))
+            (("x", "X"), ("y", "Y"), ("width", "Width"), ("height", "Height"))
         ):
             row_index, column = divmod(number, 2)
-            ttk.Label(form, text=name, style="PanelMuted.TLabel").grid(
+            title = ttk.Label(form, style="PanelMuted.TLabel")
+            self.geometry_titles[key] = name, title
+            title.grid(
                 row=row_index * 2,
                 column=column,
                 sticky="w",
@@ -639,10 +650,16 @@ class App:
         self.title.set(self.name + (" *" if self.label != self.saved else ""))
         self.root.title(f"{self.title.get()} — P-Touch UI")
         self.tape.set(f"{self.label.tape:g} mm")
-        self.length.set(f"{self.label.length:g}")
+        unit = self.unit
+        self.length_title.configure(text=f"Length ({unit.name})")
+        for name, title in self.geometry_titles.values():
+            title.configure(text=f"{name} ({unit.name})")
+        self.length.set(unit.text(self.label.length))
         self.record = min(self.record, max(0, len(self.label.rows) - 1))
         pixels = self.label.size[1]
-        self.tape_summary.set(f"{self.label.tape:g} mm tape  ·  {self.label.length:g} mm long")
+        self.tape_summary.set(
+            f"{self.label.tape:g} mm tape  ·  {unit.text(self.label.length)} {unit.name} long"
+        )
         self.record_title.set(
             f"Record {self.record + 1} of {len(self.label.rows)}"
             if self.label.rows
@@ -693,7 +710,7 @@ class App:
             self.object_title.set(obj.kind)
             self.edit_button.state(["disabled" if obj.kind == "Line" else "!disabled"])
             for key, variable in self.geometry.items():
-                variable.set(f"{getattr(obj, key) / DOTS_PER_MM:.1f}")
+                variable.set(self.unit.field(getattr(obj, key) / DOTS_PER_MM))
             self.rotation.set(f"{obj.rotation}°")
             self.show_text_controls(obj)
         else:
@@ -869,6 +886,17 @@ class App:
         self.canvas.zoom = None if zoom == "Fit" else int(zoom.rstrip("%")) / 100
         self.canvas.redraw()
 
+    @property
+    def unit(self):
+        return UNITS[self.units.get()]
+
+    def change_units(self, _event=None):
+        store_unit(self.units.get())
+        self.canvas.unit = self.unit
+        self.canvas.redraw()
+        name = "inches" if self.unit.name == "in" else self.unit.name
+        self.refresh(rebuild=False, notice=f"Measurements shown in {name}")
+
     def toggle_grid(self):
         self.canvas.grid_enabled = self.grid.get()
         self.canvas.redraw()
@@ -929,11 +957,19 @@ class App:
             menu.grab_release()
 
     def change_length(self):
+        unit = self.unit
+        typed = self.length.get().strip()
+        if typed == unit.text(self.label.length):
+            # Unchanged text would only reintroduce the rounding of the displayed value.
+            return
         try:
-            label = replace(self.label, length=float(self.length.get()))
+            label = replace(self.label, length=round(unit.to_mm(typed), 4))
         except ValueError:
-            self.length.set(f"{self.label.length:g}")
-            self.show_error("Invalid length", f"Enter a length from {MIN_LENGTH} to {MAX_LENGTH} mm.")
+            self.length.set(unit.text(self.label.length))
+            self.show_error(
+                "Invalid length",
+                f"Enter a length from {unit.text(MIN_LENGTH)} to {unit.text(MAX_LENGTH)} {unit.name}.",
+            )
         else:
             # A typed length takes over from automatic fitting.
             self.auto_fit.set(False)
@@ -945,7 +981,7 @@ class App:
         if obj is None:
             return
         try:
-            values = {key: dots(float(value.get())) for key, value in self.geometry.items()}
+            values = {key: dots(self.unit.to_mm(value.get())) for key, value in self.geometry.items()}
             rotation = int(self.rotation.get().rstrip("°"))
             if (rotation - obj.rotation) % 180 == 90 and (
                 values["width"] == obj.width and values["height"] == obj.height
@@ -1226,7 +1262,7 @@ class App:
             self.show_error("Printer not ready", self.printer_error)
 
     def print_label(self):
-        self.print_dialog = PrintDialog(self.root, self.label, self.record, self.name)
+        self.print_dialog = PrintDialog(self.root, self.label, self.record, self.name, self.unit)
         try:
             count = self.print_dialog.show()
         finally:

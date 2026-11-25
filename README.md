@@ -101,6 +101,9 @@ python3 -m venv .venv
    checked, an empty label uses the minimum length and the length adjusts
    automatically as objects are added, moved, resized, or removed. Typing a
    length and pressing **Set** or **Enter** turns it off.
+   Choose **mm**, **cm**, or **in** from **Units** above the canvas to switch
+   the rulers, grid, length, and object position and size fields. Tape widths
+   stay in millimetres, and the choice is remembered between sessions.
 3. Add objects from the toolbar. Select on the label or in **Layers**, drag to
    move, and drag a corner handle to resize. Double-click an object to edit its
    content or style. Use the inspector for millimeter coordinates, size,
