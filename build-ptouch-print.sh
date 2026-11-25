@@ -60,6 +60,7 @@ else
 fi
 
 cd "$directory"
+directory=$(pwd)
 ./autogen.sh
 ./configure --prefix=/usr
 make -j"$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 1)"
