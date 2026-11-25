@@ -33,7 +33,7 @@ from .document import (
 )
 from .print_dialog import PrintDialog, background
 from .printer import PrinterError, printer_problem, printer_status
-from .raster import import_image, largest_text_size, list_fonts, render, save_png
+from .raster import import_image, largest_text_size, list_fonts, render, save_png, text_box, text_extent
 from .recent import forget_recent, load_recent, remember_recent, store_recent
 from .widgets import (
     BLUE,
@@ -572,9 +572,46 @@ class App:
             self.show_error("Invalid font size", "Enter a whole number of dots from 1 to 300.")
             return
         if element != obj:
-            self.change_object(self.selected, element)
+            element, notice = self.grow_text_box(element)
+            self.change_object(self.selected, element, notice)
         else:
             self.show_text_controls(obj)
+
+    def grow_text_box(self, element):
+        """Enlarge a text box so its text fits at the chosen size, within the printable area.
+
+        Shrink-to-fit would otherwise scale a larger font straight back down to the box.
+        Returns the element and a notice when the tape itself is too narrow for the size.
+        """
+        try:
+            text, _missing = substitute(element.value, self.label.fields(self.record))
+            need_width, need_height = text_extent(element, text)
+        except (OSError, ValueError):
+            return element, None
+        box_width, box_height = text_box(element)
+        if need_width <= box_width and need_height <= box_height:
+            return element, None
+        width, height = self.bounds.size
+        quarter = element.rotation in (90, 270)
+        limit_width, limit_height = (height, width) if quarter else (width, height)
+        layout = min(limit_width, max(box_width, need_width)), min(limit_height, max(box_height, need_height))
+        new_width, new_height = (layout[1], layout[0]) if quarter else layout
+        grown = replace(
+            element,
+            x=element.x - (new_width - element.width) // 2,
+            y=element.y - (new_height - element.height) // 2,
+            width=new_width,
+            height=new_height,
+        )
+        grown = fit_position(grown, self.bounds)
+        if layout[0] >= need_width and layout[1] >= need_height:
+            return grown, None
+        if (need_width > limit_width) if quarter else (need_height > limit_height):
+            limit = f"the {height}-dot printable width of {self.label.tape:g} mm tape"
+        else:
+            limit = "the label length"
+        action = "shrunk to fit" if element.fit else "cut off by"
+        return grown, f"{element.font_size}-dot text is {action} {limit}"
 
     def step_text_size(self, direction):
         obj = self.object
@@ -998,18 +1035,24 @@ class App:
         if self.object is None or self.object.kind == "Line":
             return
         index = self.selected
-        element = self.object_dialog(self.object)
+        previous = self.object
+        element = self.object_dialog(previous)
         if element is not None:
-            self.change_object(index, element)
+            notice = None
+            if element.kind == "Text" and any(
+                getattr(element, field) != getattr(previous, field) for field in TEXT_STYLE
+            ):
+                element, notice = self.grow_text_box(element)
+            self.change_object(index, element, notice)
 
-    def change_object(self, index, element):
+    def change_object(self, index, element, notice=None):
         style = {field: getattr(element, field) for field in TEXT_STYLE}
         previous = self.label.elements[index]
         if element.kind == "Text" and style != {field: getattr(previous, field) for field in TEXT_STYLE}:
             self.text_style = style
         items = list(self.label.elements)
         items[index] = element
-        self.change(replace(self.label, elements=tuple(items)), index)
+        self.change(replace(self.label, elements=tuple(items)), index, notice)
 
     def delete(self):
         if self.selected is not None:

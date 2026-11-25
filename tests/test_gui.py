@@ -230,6 +230,35 @@ class DesktopTests(TestCase):
         root.update()
         self.assertFalse(app.text_form.winfo_ismapped())
 
+    def test_larger_font_sizes_grow_the_text_box_instead_of_shrinking_back(self):
+        import tkinter as tk
+        from dataclasses import replace
+
+        from ptouch_ui.app import App
+        from ptouch_ui.document import Element, Label
+        from ptouch_ui.raster import render
+
+        root = tk.Tk()
+        self.addCleanup(root.destroy)
+        app = App(root)
+        # A new text box is 42 dots tall; shrink-to-fit used to cap the size near 48 dots.
+        text = Element("Text", 10, 10, 258, 42, "Hello")
+        app.reset(Label(tape=24, elements=(text,)), "Size test")
+        app.select(0)
+        app.font_size.set("96")
+        app.apply_text_style()
+        self.assertEqual(96, app.object.font_size)
+        self.assertGreater(app.object.height, 42)
+        self.assertEqual([], render(replace(app.label, elements=(replace(app.object, fit=False),)))[1])
+
+        # On narrow tape the box stops at the printable width, and the status bar says so.
+        app.reset(Label(tape=12, elements=(text,)), "Size test")
+        app.select(0)
+        app.font_size.set("128")
+        app.apply_text_style()
+        self.assertEqual(76, app.object.height)
+        self.assertIn("76-dot printable width", app.feedback.get())
+
     def test_deleting_during_a_drag_cancels_the_pending_edit(self):
         import tkinter as tk
         from types import SimpleNamespace

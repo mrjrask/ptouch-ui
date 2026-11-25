@@ -98,6 +98,15 @@ def largest_text_size(element, text):
     return _largest_fit(measure, fits, MAX_FONT_SIZE)[0]
 
 
+def text_extent(element, text):
+    """Return the unrotated size ``text`` needs at the object's font size, in dots."""
+    if not text.strip():
+        return 0, 0
+    measure, _fits = _text_measure((0, 0), element, text)
+    x0, y0, x1, y1 = measure(element.font_size)[1]
+    return x1 - x0, y1 - y0
+
+
 def text_tile(size, element, text):
     tile = Image.new("L", size, BLACK)
     if not text.strip():
