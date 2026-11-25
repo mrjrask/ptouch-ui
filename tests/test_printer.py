@@ -2,6 +2,7 @@ import json
 import os
 import subprocess
 import sys
+from contextlib import contextmanager
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase
@@ -9,7 +10,7 @@ from unittest.mock import patch
 
 from PIL import Image
 
-from ptouch_ui import printer
+from ptouch_ui import printer, usb
 from ptouch_ui.printer import PrinterError, PrintOptions, print_images, printer_problem, printer_status
 
 FAKE_PRINTER = """
@@ -45,12 +46,10 @@ if "--info" in args:
         if mode == "init-error":
             print("ptouch_init() failed")
 elif args == ["--help"]:
-    if os.environ.get("PRINTER_MODE") == "no-chain":
-        print("--image --cutmark --pad <n>")
-    elif os.environ.get("PRINTER_MODE") == "no-cutmark":
-        print("--image --no--cutmark --pad <n> --chain")
+    if os.environ.get("PRINTER_MODE") == "no-cutmark":
+        print("--image --no--cutmark --pad <n>")
     else:
-        print("--image --cutmark --pad <n> --chain --serial=<serial> --feed=<dots>")
+        print("--image --cutmark --pad <n> --serial=<serial> --feed=<dots>")
 elif "--image" in args or "--pad" in args:
     for idx, arg in enumerate(args):
         if arg == "--image":
@@ -186,50 +185,106 @@ class PrinterTests(TestCase):
         self.assertEqual([1], progress)
         self.assertEqual(2, len(self.log.read_text().splitlines()))
 
-    def test_precut_feeds_a_chained_blank_page_before_each_separately_cut_label(self):
+    def usb_job(self, status=None, fail_after=None):
+        """Patch the USB printer and return the list its writes are recorded in."""
+        writes = []
+        ready = bytes([0x80, 0x20]) + bytes(30)
+
+        class FakePrinter:
+            def write(self, data):
+                if fail_after is not None and data in (usb.NEXT_PAGE, usb.LAST_PAGE):
+                    if writes.count(usb.NEXT_PAGE) + writes.count(usb.LAST_PAGE) == fail_after:
+                        raise usb.UsbError("Could not send data to the printer: LIBUSB_ERROR_IO.")
+                writes.append(data)
+
+            def read_status(self):
+                return status or ready
+
+        @contextmanager
+        def fake_open(serial=""):
+            writes.append(("open", serial))
+            yield FakePrinter()
+
+        patcher = patch.object(usb, "open_printer", fake_open)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return writes
+
+    @staticmethod
+    def pages(writes):
+        """Split recorded writes into pages of raster lines, with the command ending each page."""
+        pages, lines = [], []
+        for data in writes:
+            if isinstance(data, bytes) and data.startswith(b"G"):
+                lines.append(data)
+            elif data in (usb.NEXT_PAGE, usb.LAST_PAGE):
+                pages.append((len(lines), data))
+                lines = []
+        return pages
+
+    def test_precut_sends_a_blank_page_and_every_label_as_one_auto_cut_job(self):
+        writes = self.usb_job()
         progress = []
-        print_images([self.image, self.image], 12, PrintOptions(precut=True), progress.append)
-        jobs = [json.loads(line) for line in self.log.read_text().splitlines()]
-        self.assertEqual(4, len(jobs))
-        for blank, label in (jobs[0:2], jobs[2:4]):
-            self.assertEqual(["--chain", "--pad", "16"], blank)
-            self.assertEqual("--image", label[0])
-            self.assertNotIn("--chain", label)
+        print_images([self.image, self.image], 12, PrintOptions(precut=True, serial="A1"), progress.append)
+        # Only the status check goes through ptouch-print; the job goes straight to USB.
+        self.assertFalse(self.log.exists())
+        self.assertEqual([("open", "A1"), usb.INITIALIZE, usb.RASTER_MODE, usb.AUTO_CUT], writes[:4])
+        self.assertEqual(
+            [(16, usb.NEXT_PAGE), (100, usb.NEXT_PAGE), (100, usb.LAST_PAGE)], self.pages(writes)
+        )
         self.assertEqual([1, 2], progress)
+        line = writes[4]
+        self.assertEqual(b"G\x10\x00", line[:3])
+        self.assertEqual(19, len(line))
 
-    def test_precut_strip_trims_the_leader_before_the_strip(self):
-        print_images([self.image], 12, PrintOptions(copies=2, strip=True, precut=True))
-        jobs = [json.loads(line) for line in self.log.read_text().splitlines()]
-        self.assertEqual(["--chain", "--pad", "16"], jobs[0])
-        self.assertNotIn("--chain", jobs[1])
-        self.assertEqual(2, jobs[1].count("--image"))
+    def test_raster_lines_match_ptouch_print_layout(self):
+        image = Image.new("L", (2, 76), 255)
+        image.putpixel((0, 0), 0)
+        image.putpixel((1, 75), 0)
+        top, bottom = usb.raster_lines(image)
+        # ptouch-print centers the image on the 128-dot head and stores dot n in bit n of a
+        # little-endian 128-bit line, with the image's top row at the highest dot.
+        self.assertEqual(1 << (26 + 75), int.from_bytes(top, "big"))
+        self.assertEqual(1 << 26, int.from_bytes(bottom, "big"))
 
-    def test_strip_requires_cut_marks_before_feeding_the_blank_leader(self):
+    def test_precut_strip_prints_one_page_with_cut_marks_after_the_leader(self):
+        writes = self.usb_job()
+        progress = []
+        print_images([self.image], 12, PrintOptions(copies=2, strip=True, precut=True), progress.append)
+        self.assertEqual([(16, usb.NEXT_PAGE), (209, usb.LAST_PAGE)], self.pages(writes))
+        self.assertEqual([2], progress)
+        strip = printer.strip_image([Image.new("L", (10, 76), 255)] * 2)
+        self.assertEqual(29, strip.width)
+        self.assertEqual([255, 255, 255, 0, 0, 0], [strip.getpixel((15, y)) for y in range(6)])
+
+    def test_precut_reports_printer_errors_before_starting(self):
+        status = bytearray([0x80, 0x20]) + bytearray(30)
+        status[9] = 0x10
+        writes = self.usb_job(status=bytes(status))
+        with self.assertRaisesRegex(PrinterError, "cover is open") as caught:
+            print_images([self.image], 12, PrintOptions(precut=True))
+        self.assertNotIn("Feed & Cut", str(caught.exception))
+        self.assertEqual([], self.pages(writes))
+
+    def test_failed_trimmed_job_tells_the_user_to_release_the_tape(self):
+        progress = []
+        self.usb_job(fail_after=2)
+        with self.assertRaisesRegex(PrinterError, "Completed 1 of 2 labels. Press Feed & Cut"):
+            print_images([self.image], 12, PrintOptions(copies=2, precut=True), progress.append)
+        self.assertEqual([1], progress)
+
+    def test_strip_without_precut_requires_cut_marks(self):
         with (
             patch.dict(os.environ, {"PRINTER_MODE": "no-cutmark"}),
             self.assertRaisesRegex(PrinterError, "does not support strips with cut marks"),
         ):
-            print_images([self.image], 12, PrintOptions(copies=2, strip=True, precut=True))
+            print_images([self.image], 12, PrintOptions(copies=2, strip=True))
         self.assertFalse(self.log.exists())
 
-    def test_precut_requires_chain_support(self):
-        with (
-            patch.dict(os.environ, {"PRINTER_MODE": "no-chain"}),
-            self.assertRaisesRegex(PrinterError, "cannot trim the blank leader"),
-        ):
-            print_images([self.image], 12, PrintOptions(precut=True))
-        self.assertFalse(self.log.exists())
+    def test_precut_rejects_feed_adjustment(self):
+        with self.assertRaisesRegex(PrinterError, "only when Trim blank leader is off"):
+            print_images([self.image], 12, PrintOptions(precut=True, feed=10))
 
-    def test_failed_chained_label_tells_the_user_to_release_the_tape(self):
-        with (
-            patch.dict(os.environ, {"PRINTER_MODE": "fail-second"}),
-            self.assertRaisesRegex(PrinterError, "Completed 0 of 2 labels. Press Feed & Cut"),
-        ):
-            print_images([self.image], 12, PrintOptions(copies=2, precut=True))
-        self.assertEqual(2, len(self.log.read_text().splitlines()))
-
-
-class DeviceLockTests(TestCase):
     def test_print_job_waits_for_a_running_status_check(self):
         from threading import Event, Thread
 

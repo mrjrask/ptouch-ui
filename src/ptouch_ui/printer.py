@@ -9,14 +9,18 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from threading import RLock
 
+from PIL import Image, ImageDraw
+
+from . import usb
 from .document import DPI, MAX_RECORDS
 from .raster import save_png
 
-# A short blank page, printed without the final feed and cut, ends where the label begins.
-# With auto-cut enabled, the printer cuts at that page boundary once it reaches the cutter,
-# trimming the blank leader. Builds that never enable auto-cut for the PT-2430PC leave the
-# blank page attached, so the label only gains this short pad.
+# A short blank page starts each trimmed job. With auto-cut on, the printer cuts at the page
+# boundary when it reaches the cutter, so the blank leader comes out as a scrap piece and the
+# first label starts where the design does. ptouch-print cannot send such a job: each run is its
+# own job ending in a feed, and the printer does not cut at a boundary left by an earlier run.
 PRECUT_DOTS = 16
+CUTMARK_DOTS = 9
 RELEASE_HINT = "Press Feed & Cut on the printer to release any tape left inside."
 # Serializes USB access, so a background status check never overlaps a print job.
 DEVICE_LOCK = RLock()
@@ -220,7 +224,9 @@ def send_images(images, tape, options, report):
     if any(image.size != images[0].size for image in images):
         raise PrinterError("All labels in a print job must have the same size.")
     arguments = ["--serial", options.serial] if options.serial else []
-    if options.feed is not None or options.serial or options.precut or (options.strip and count > 1):
+    if options.precut and options.feed is not None:
+        raise PrinterError("Feed dots apply only when Trim blank leader is off.")
+    if options.feed is not None or (options.serial and not options.precut) or (options.strip and count > 1):
         available = details(run(["--help"], timeout=8))
         if options.strip and count > 1 and not supports(available, "--cutmark"):
             raise PrinterError("This ptouch-print version does not support strips with cut marks.")
@@ -228,14 +234,9 @@ def send_images(images, tape, options, report):
             if not supports(available, "--feed"):
                 raise PrinterError("This ptouch-print version does not support feed adjustment.")
             arguments.extend(("--feed", str(options.feed)))
-        if options.serial and not supports(available, "--serial"):
+        if options.serial and not options.precut and not supports(available, "--serial"):
             raise PrinterError(
                 "This ptouch-print version does not support printer selection by serial number."
-            )
-        if options.precut and not (supports(available, "--chain") and supports(available, "--pad")):
-            raise PrinterError(
-                "This ptouch-print version cannot trim the blank leader. "
-                "Update ptouch-print or turn off Trim blank leader."
             )
 
     # Save and validate all input before starting any USB print operation.
@@ -247,35 +248,66 @@ def send_images(images, tape, options, report):
             paths.append(str(path))
         queue = [path for path in paths for _ in range(options.copies)]
         verify_tape(printer_status(options.serial), tape, images[0].height)
-
-        def precut():
-            if options.precut:
-                try:
-                    command_output(run([*arguments, "--chain", "--pad", str(PRECUT_DOTS)], timeout=60))
-                except PrinterError as error:
-                    raise PrinterError(f"The leader could not be fed.\n{error}") from error
-
-        hint = f" {RELEASE_HINT}" if options.precut else ""
-        if options.strip:
+        if options.precut:
+            send_trimmed(images, options, count, report)
+        elif options.strip:
             jobs = []
             for index, path in enumerate(queue):
                 if index:
                     jobs.append("--cutmark")
                 jobs.extend(("--image", path))
             try:
-                precut()
                 command_output(run([*arguments, *jobs], timeout=max(90, 20 * count)))
             except PrinterError as error:
                 raise PrinterError(
-                    f"The strip did not complete. Check the tape before printing again.{hint}\n{error}"
+                    f"The strip did not complete. Check the tape before printing again.\n{error}"
                 ) from error
             report(count)
         else:
             for number, path in enumerate(queue, start=1):
                 # Each label stays its own fed-and-cut job, so labels never run together uncut.
                 try:
-                    precut()
                     command_output(run([*arguments, "--image", path], timeout=90))
                 except PrinterError as error:
-                    raise PrinterError(f"Completed {number - 1} of {count} labels.{hint}\n{error}") from error
+                    raise PrinterError(f"Completed {number - 1} of {count} labels.\n{error}") from error
                 report(number)
+
+
+def strip_image(labels):
+    """Join labels into one strip with dashed cut marks between them, like ptouch-print --cutmark."""
+    width, height = labels[0].size
+    strip = Image.new("L", (len(labels) * width + (len(labels) - 1) * CUTMARK_DOTS, height), 255)
+    draw = ImageDraw.Draw(strip)
+    for index, label in enumerate(labels):
+        left = index * (width + CUTMARK_DOTS)
+        strip.paste(label.convert("L"), (left, 0))
+        if index:
+            for top in range(3, height, 6):
+                draw.line(
+                    (left - CUTMARK_DOTS + 5, top, left - CUTMARK_DOTS + 5, min(top + 2, height - 1)), 0
+                )
+    return strip
+
+
+def send_trimmed(images, options, count, report):
+    """Print a blank page and the labels as one auto-cut job, so the leader is cut off."""
+    labels = [image for image in images for _ in range(options.copies)]
+    blank = Image.new("L", (PRECUT_DOTS, images[0].height), 255)
+    pages = [blank, strip_image(labels)] if options.strip else [blank, *labels]
+    sent = []
+    started = []
+
+    def page_sent(page):
+        started.append(page)
+        # Page 1 is the blank leader; each later page is one label, or the whole strip.
+        if page > 1:
+            sent.append(page)
+            report(count if options.strip else page - 1)
+
+    try:
+        usb.print_pages(pages, options.serial, page_sent)
+    except usb.UsbError as error:
+        if not started:
+            raise PrinterError(f"{error}\n\n{usb_troubleshooting()}") from error
+        done = count if options.strip and sent else len(sent)
+        raise PrinterError(f"Completed {done} of {count} labels. {RELEASE_HINT}\n{error}") from error
