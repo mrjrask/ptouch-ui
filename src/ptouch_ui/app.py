@@ -1039,7 +1039,9 @@ class App:
         element = self.object_dialog(previous)
         if element is not None:
             notice = None
-            if element.kind == "Text" and element != previous:
+            if element.kind == "Text" and any(
+                getattr(element, field) != getattr(previous, field) for field in TEXT_STYLE
+            ):
                 element, notice = self.grow_text_box(element)
             self.change_object(index, element, notice)
 
