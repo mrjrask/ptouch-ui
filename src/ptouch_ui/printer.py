@@ -15,11 +15,11 @@ from . import usb
 from .document import DPI, MAX_RECORDS
 from .raster import save_png
 
-# A short blank page starts each trimmed job. With auto-cut on, the printer cuts at the page
-# boundary when it reaches the cutter, so the blank leader comes out as a scrap piece and the
-# first label starts where the design does. ptouch-print cannot send such a job: each run is its
-# own job ending in a feed, and the printer does not cut at a boundary left by an earlier run.
-PRECUT_DOTS = 16
+# A trimmed job is sent with auto-cut on. The printer then cuts off the blank leader on its own
+# before the first page, and cuts again at every page boundary, so the first label starts where
+# the design does. Adding a blank page of our own made a second scrap: the printer stretches a
+# page that short to its minimum length and cuts it off as well. ptouch-print cannot send this
+# job, because it never turns auto-cut on for the PT-2430PC.
 CUTMARK_DOTS = 9
 RELEASE_HINT = "Press Feed & Cut on the printer to release any tape left inside."
 # Serializes USB access, so a background status check never overlaps a print job.
@@ -290,19 +290,18 @@ def strip_image(labels):
 
 
 def send_trimmed(images, options, count, report):
-    """Print a blank page and the labels as one auto-cut job, so the leader is cut off."""
+    """Print the labels as one auto-cut job, so the printer cuts the leader off first."""
     labels = [image for image in images for _ in range(options.copies)]
-    blank = Image.new("L", (PRECUT_DOTS, images[0].height), 255)
-    pages = [blank, strip_image(labels)] if options.strip else [blank, *labels]
+    pages = [strip_image(labels)] if options.strip else labels
     sent = []
     started = []
 
     def page_sent(page):
         started.append(page)
-        # Page 1 is the blank leader; each later page is one label, or the whole strip.
-        if page > 1:
+        # Each page is one label, or the whole strip.
+        if page:
             sent.append(page)
-            report(count if options.strip else page - 1)
+            report(count if options.strip else page)
 
     try:
         usb.print_pages(pages, options.serial, page_sent)
