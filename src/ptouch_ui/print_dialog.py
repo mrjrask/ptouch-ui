@@ -12,6 +12,7 @@ from PIL import Image, ImageOps, ImageTk
 from .document import MAX_RECORDS
 from .printer import PrinterError, PrintOptions, print_images
 from .raster import render
+from .units import DEFAULT_UNIT, UNITS
 from .widgets import Dialog
 
 LOGGER = logging.getLogger(__name__)
@@ -30,9 +31,10 @@ def background(operation, messages):
 
 
 class PrintDialog(Dialog):
-    def __init__(self, parent, label, current_index, title):
+    def __init__(self, parent, label, current_index, title, unit=UNITS[DEFAULT_UNIT]):
         super().__init__(parent, "Print labels")
         self.label = label
+        self.unit = unit
         self.current_index = current_index
         self.today = date.today()
         self.running = False
@@ -145,7 +147,8 @@ class PrintDialog(Dialog):
         except ValueError:
             count = 0
         self.summary.set(
-            f"{self.label.length:g} mm long  ·  {self.label.tape:g} mm tape  ·  {count} label(s)"
+            f"{self.unit.text(self.label.length)} {self.unit.name} long  ·  "
+            f"{self.label.tape:g} mm tape  ·  {count} label(s)"
         )
         self.error.set(issues[0] if issues else "")
 
